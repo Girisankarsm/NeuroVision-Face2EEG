@@ -10,7 +10,7 @@ import numpy as np
 from neurovision.preprocessing.facial import FacialFeatureState, extract_facial_feature_vector
 from neurovision.realtime.camera import Camera
 from neurovision.realtime.eeg_prediction import band_percentages
-from neurovision.realtime.face_tracker import MediaPipeFaceTracker
+from neurovision.realtime.face_tracker import FaceTrackingResult, MediaPipeFaceTracker
 from neurovision.realtime.feature_buffer import TemporalFeatureBuffer
 from neurovision.realtime.inference import EEGPredictor, Prediction
 
@@ -32,6 +32,15 @@ class DashboardStats:
     dominant_band: str = "N/A"
     confidence_display: str = "Confidence: N/A"
     uncertainty_display: str = "Uncertainty: N/A"
+
+
+def _create_camera_fallback_frame(width: int = 670, height: int = 400, message: str = "CAMERA OFFLINE / PERMISSION REQUIRED") -> np.ndarray:
+    frame = np.full((height, width, 3), (20, 24, 30), dtype=np.uint8)
+    cv2.rectangle(frame, (20, 20), (width - 20, height - 20), (38, 48, 60), 1)
+    _text(frame, "● CAMERA OFFLINE", (width // 2 - 130, height // 2 - 20), 0.68, (240, 140, 80), 2)
+    _text(frame, message, (width // 2 - 190, height // 2 + 18), 0.44, (160, 175, 190), 1)
+    _text(frame, "Check camera index or grant Terminal Camera permissions.", (width // 2 - 210, height // 2 + 48), 0.40, (120, 135, 150), 1)
+    return frame
 
 
 def run_dashboard(
@@ -71,64 +80,68 @@ def run_dashboard(
         while True:
             loop_start = time.perf_counter()
             frame = camera.read()
+
             if frame is None:
                 stats.face_status = "CAMERA ERROR"
-                break
-
-            stats.frames_processed += 1
-            h, w = frame.shape[:2]
-
-            # Face Tracking & Geometry
-            tracking = tracker.process(frame, rvec=state.rvec, tvec=state.tvec)
-            stats.face_status = tracking.status
-            stats.face_count = tracking.face_count
-            stats.tracking_quality = tracking.tracking_quality
-
-            if tracking.landmarks is not None:
-                feat_start = time.perf_counter()
-                feature, state = extract_facial_feature_vector(
-                    tracking.landmarks,
-                    state,
-                    tracking.blendshapes,
-                    timestamp=time.time(),
-                    image_shape=(h, w),
-                )
-                stats.feat_latency_ms = (time.perf_counter() - feat_start) * 1000.0
-                buffer.append(feature, timestamp=time.time())
-                stats.frames_dropped = buffer.dropped_frames
-
-                # Run EEG prediction only if buffer is full and checkpoint is loaded
-                if buffer.ready() and predictor.status == "READY":
-                    pred_start = time.perf_counter()
-                    prediction = predictor.predict(buffer.tensor(), mc_dropout_passes=3)
-                    stats.infer_latency_ms = (time.perf_counter() - pred_start) * 1000.0
-
-                    if prediction is not None:
-                        waveform_history.extend(prediction.waveform.tolist())
-                        band_values = prediction.band_power
-                        stats.predicted_rms = float(np.sqrt(np.mean(np.square(prediction.waveform))))
-                        stats.predicted_peak_to_peak = float(np.ptp(prediction.waveform))
-                        stats.dominant_band = _dominant_band(band_values)
-
-                        for idx, name in enumerate(["delta", "theta", "alpha", "beta", "gamma"]):
-                            band_history[name].append(float(band_values[idx]))
-
-                        if prediction.confidence is not None:
-                            stats.confidence_display = f"Prediction Confidence: {prediction.confidence * 100:.0f}%"
-                        else:
-                            stats.confidence_display = "Confidence: N/A"
-
-                        if prediction.uncertainty is not None and len(prediction.uncertainty) > 0:
-                            stats.uncertainty_display = f"Uncertainty: ±{float(prediction.uncertainty[0]):.3f}"
-                        else:
-                            stats.uncertainty_display = "Uncertainty: N/A"
-                else:
-                    stats.infer_latency_ms = 0.0
-                    stats.confidence_display = "Confidence: N/A"
-                    stats.uncertainty_display = "Uncertainty: N/A"
+                stats.face_count = 0
+                stats.tracking_quality = 0.0
+                annotated_camera = _create_camera_fallback_frame(670, 400)
             else:
-                stats.feat_latency_ms = 0.0
-                stats.infer_latency_ms = 0.0
+                stats.frames_processed += 1
+                h, w = frame.shape[:2]
+
+                # Face Tracking & Geometry
+                tracking = tracker.process(frame, rvec=state.rvec, tvec=state.tvec)
+                stats.face_status = tracking.status
+                stats.face_count = tracking.face_count
+                stats.tracking_quality = tracking.tracking_quality
+                annotated_camera = tracking.annotated_frame
+
+                if tracking.landmarks is not None:
+                    feat_start = time.perf_counter()
+                    feature, state = extract_facial_feature_vector(
+                        tracking.landmarks,
+                        state,
+                        tracking.blendshapes,
+                        timestamp=time.time(),
+                        image_shape=(h, w),
+                    )
+                    stats.feat_latency_ms = (time.perf_counter() - feat_start) * 1000.0
+                    buffer.append(feature, timestamp=time.time())
+                    stats.frames_dropped = buffer.dropped_frames
+
+                    # Run EEG prediction only if buffer is full and checkpoint is loaded
+                    if buffer.ready() and predictor.status == "READY":
+                        pred_start = time.perf_counter()
+                        prediction = predictor.predict(buffer.tensor(), mc_dropout_passes=3)
+                        stats.infer_latency_ms = (time.perf_counter() - pred_start) * 1000.0
+
+                        if prediction is not None:
+                            waveform_history.extend(prediction.waveform.tolist())
+                            band_values = prediction.band_power
+                            stats.predicted_rms = float(np.sqrt(np.mean(np.square(prediction.waveform))))
+                            stats.predicted_peak_to_peak = float(np.ptp(prediction.waveform))
+                            stats.dominant_band = _dominant_band(band_values)
+
+                            for idx, name in enumerate(["delta", "theta", "alpha", "beta", "gamma"]):
+                                band_history[name].append(float(band_values[idx]))
+
+                            if prediction.confidence is not None:
+                                stats.confidence_display = f"Prediction Confidence: {prediction.confidence * 100:.0f}%"
+                            else:
+                                stats.confidence_display = "Confidence: N/A"
+
+                            if prediction.uncertainty is not None and len(prediction.uncertainty) > 0:
+                                stats.uncertainty_display = f"Uncertainty: ±{float(prediction.uncertainty[0]):.3f}"
+                            else:
+                                stats.uncertainty_display = "Uncertainty: N/A"
+                    else:
+                        stats.infer_latency_ms = 0.0
+                        stats.confidence_display = "Confidence: N/A"
+                        stats.uncertainty_display = "Uncertainty: N/A"
+                else:
+                    stats.feat_latency_ms = 0.0
+                    stats.infer_latency_ms = 0.0
 
             # Calculate FPS
             fps_counter += 1
@@ -143,7 +156,7 @@ def run_dashboard(
 
             # Render complete scientific panel
             panel = _render_scientific_dashboard(
-                camera_frame=tracking.annotated_frame,
+                camera_frame=annotated_camera,
                 waveform_history=waveform_history,
                 band_values=band_values,
                 band_history=band_history,
@@ -156,7 +169,8 @@ def run_dashboard(
             )
 
             cv2.imshow(window_name, panel)
-            key = cv2.waitKey(1) & 0xFF
+            wait_time = 1 if frame is not None else 30
+            key = cv2.waitKey(wait_time) & 0xFF
             if key in {27, ord("q"), ord("Q")}:
                 break
     finally:
