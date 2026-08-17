@@ -1,16 +1,33 @@
-sequence_length: 64
-eeg_window_samples: 128
-eeg_sample_rate: 256
+# NeuroVision Configuration File
+# Real-Time Facial Dynamics & AI-Predicted EEG Oscillation Research
+
+# Temporal & Signal Parameters
+sequence_length: 64         # Number of historical facial feature frames (approx. 2.1s at 30fps)
+eeg_window_samples: 128     # Target EEG window output samples (0.5s at 256Hz)
+eeg_sample_rate: 256.0      # EEG sampling rate in Hz
+
+# EEG Frequency Band Definitions (Hz)
+bands:
+  delta: [0.5, 4.0]
+  theta: [4.0, 8.0]
+  alpha: [8.0, 13.0]
+  beta: [13.0, 30.0]
+  gamma: [30.0, 100.0]
+
+# Model Architecture Defaults
 model:
-  feature_dim: 4233
-  hidden_dim: 256
-  dropout: 0.15
-  attention_heads: 4
-  transformer_layers: 3
+  feature_dim: 4233          # Normalized landmarks (1404) + Geometry (11) + Kinematics (2810) + Blendshapes (8)
+  hidden_dim: 256            # Latent representation width
+  dropout: 0.15              # Regularization dropout probability
+  attention_heads: 4         # Transformer multi-head attention heads
+  transformer_layers: 3      # Number of transformer encoder layers
+
+# Subject-Independent Training Hyperparameters
 training:
   batch_size: 32
   epochs: 50
   learning_rate: 0.0003
   weight_decay: 0.01
   patience: 8
+  scheduler_patience: 3
   gradient_clip: 1.0

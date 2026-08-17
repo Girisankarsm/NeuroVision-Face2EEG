@@ -33,7 +33,12 @@ class FacialEEGTransformer(nn.Module):
         dropout: float = 0.15,
     ) -> None:
         super().__init__()
-        self.projection = nn.Sequential(nn.LayerNorm(feature_dim), nn.Linear(feature_dim, hidden_dim), nn.GELU())
+        self.projection = nn.Sequential(
+            nn.LayerNorm(feature_dim),
+            nn.Linear(feature_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
         self.position = PositionalEncoding(hidden_dim)
         layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
@@ -44,9 +49,10 @@ class FacialEEGTransformer(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.encoder = nn.TransformerEncoder(layer, num_layers=layers)
-        self.heads = MultiTaskEEGHeads(hidden_dim, eeg_window_samples)
+        self.encoder = nn.TransformerEncoder(layer, num_layers=layers, enable_nested_tensor=False)
+        self.heads = MultiTaskEEGHeads(hidden_dim, eeg_window_samples, dropout=dropout)
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        encoded = self.encoder(self.position(self.projection(x)))
+        projected = self.projection(x)
+        encoded = self.encoder(self.position(projected))
         return self.heads(encoded.mean(dim=1))

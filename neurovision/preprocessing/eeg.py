@@ -24,6 +24,8 @@ BANDS = {
     "gamma": (30.0, 100.0),
 }
 
+_trapz_fn = getattr(np, "trapezoid", getattr(np, "trapz", None))
+
 
 def preprocess_eeg(signal: np.ndarray, cfg: EEGPreprocessingConfig) -> np.ndarray:
     eeg = np.asarray(signal, dtype=np.float32)
@@ -52,7 +54,7 @@ def band_power(signal: np.ndarray, sample_rate: float, bands: dict[str, tuple[fl
     for name, (low, high) in bands.items():
         high = min(high, sample_rate / 2.0)
         mask = (freqs >= low) & (freqs < high)
-        powers[name] = float(np.trapz(psd[mask], freqs[mask])) if np.any(mask) else 0.0
+        powers[name] = float(_trapz_fn(psd[mask], freqs[mask])) if np.any(mask) else 0.0
     return powers
 
 
