@@ -42,6 +42,10 @@ class EEGPredictor:
         self.metadata = ModelMetadata(device=str(self.device).upper())
         if checkpoint_path:
             self.load(checkpoint_path)
+        else:
+            default_ckpt = Path("neurovision/models/checkpoints/best.pt")
+            if default_ckpt.exists():
+                self.load(default_ckpt)
 
     def load(self, checkpoint_path: str | Path) -> bool:
         path = Path(checkpoint_path)

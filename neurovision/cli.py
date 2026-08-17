@@ -16,7 +16,7 @@ def main() -> None:
 
     # 1. Live dashboard command
     live = sub.add_parser("live", help="Launch the real-time webcam dashboard")
-    live.add_argument("--checkpoint", default=None, help="Path to trained PyTorch model checkpoint (.pt)")
+    live.add_argument("--checkpoint", default="neurovision/models/checkpoints/best.pt", help="Path to trained PyTorch model checkpoint (.pt)")
     live.add_argument("--camera", type=int, default=0, help="Webcam device index (default: 0)")
     live.add_argument("--mode", default="research", choices=["demo", "research", "validation"], help="UI/UX dashboard mode")
     live.add_argument("--validation-dataset", default=None, help="Optional synchronized dataset for validation mode")

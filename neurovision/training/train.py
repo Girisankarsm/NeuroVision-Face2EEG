@@ -143,18 +143,18 @@ def train_model(
             best_val = val_loss
             best_epoch = epoch
             stale_epochs = 0
+            cpu_state_dict = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             torch.save(
                 {
                     "model_name": model_name,
                     "config": config,
-                    "state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "best_val_loss": best_val,
-                    "epoch": best_epoch,
-                    "param_count": param_count,
+                    "state_dict": cpu_state_dict,
+                    "best_val_loss": float(best_val),
+                    "epoch": int(best_epoch),
+                    "param_count": int(param_count),
                     "history": history,
-                    "train_subjects": list(train_subjects),
-                    "val_subjects": list(val_subjects),
+                    "train_subjects": [str(s) for s in train_subjects],
+                    "val_subjects": [str(s) for s in val_subjects],
                 },
                 output_path,
             )
