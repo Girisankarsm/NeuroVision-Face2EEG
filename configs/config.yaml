@@ -1,0 +1,16 @@
+sequence_length: 64
+eeg_window_samples: 128
+eeg_sample_rate: 256
+model:
+  feature_dim: 4233
+  hidden_dim: 256
+  dropout: 0.15
+  attention_heads: 4
+  transformer_layers: 3
+training:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  patience: 8
+  gradient_clip: 1.0

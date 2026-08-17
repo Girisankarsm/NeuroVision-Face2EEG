@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+import torch
+from torch import nn
+
+
+class MultiTaskEEGHeads(nn.Module):
+    def __init__(self, hidden_dim: int, eeg_window_samples: int, band_count: int = 5, spectral_bins: int = 64) -> None:
+        super().__init__()
+        self.waveform = nn.Linear(hidden_dim, eeg_window_samples)
+        self.band_power = nn.Linear(hidden_dim, band_count)
+        self.spectral = nn.Linear(hidden_dim, spectral_bins)
+        self.uncertainty = nn.Sequential(nn.Linear(hidden_dim, band_count + 1), nn.Softplus())
+
+    def forward(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        return {
+            "waveform": self.waveform(latent),
+            "band_power": self.band_power(latent),
+            "spectral": self.spectral(latent),
+            "uncertainty": self.uncertainty(latent),
+        }
