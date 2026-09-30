@@ -1,153 +1,118 @@
-# NeuroVision — Real-Time Research Instrument & AI-Predicted EEG Modeling
+# NeuroVision (Face2EEG)
 
-## Abstract
+NeuroVision is a research pipeline for studying whether facial movement features from a standard camera are statistically associated with synchronized EEG recordings. It includes live facial-feature tracking, dataset preparation, model training, and evaluation tools.
 
-NeuroVision is a scientific research instrument and machine learning pipeline designed to study whether temporal facial dynamics captured from standard webcam video can predict correlated electroencephalogram (EEG) neural oscillations.
+> **Research use only.** NeuroVision is not a medical device and does not measure EEG through a camera. Any EEG output is a model prediction, not a measurement. Model outputs require validation on synchronized data. When no model is loaded, the application reports `EEG MODEL NOT LOADED` and does not display predicted EEG.
 
-> [!IMPORTANT]
-> **Scientific Integrity & Ethical Disclaimer**:
-> NeuroVision is a research instrument, **not a medical device or physiological EEG replacement**. Camera-only outputs represent AI-predicted statistical estimates and require rigorous experimental validation on synchronized multimodal corpora. When no trained model checkpoint is loaded, the application displays live facial dynamics while explicitly showing `EEG MODEL NOT LOADED`—it **never fabricates or simulates fake neural activity**.
+## Features
 
----
+- **Live facial tracking:** MediaPipe landmarks, eye aspect ratio (EAR), blink rate, mouth aspect ratio (MAR), head pose, movement, and action-unit intensities.
+- **Streamlit interface:** live metrics, tracking quality hints, neutral-face calibration, feature recording, and optional raw-video recording.
+- **Temporal data pipeline:** timestamp alignment, feature windows, dataset normalization, and subject-aware splits.
+- **Modeling and evaluation:** MLP, temporal CNN, CNN-LSTM, Transformer, and multimodal architectures; cross-validation, statistical baselines, and evaluation reports.
+- **Prediction uncertainty:** Monte Carlo Dropout and model uncertainty estimates where supported.
 
-## Key Capabilities
+## Getting started
 
-1. **Real-Time Facial Dynamics & Geometry**:
-   - 468-point 3D facial landmarks via MediaPipe Face Mesh.
-   - **Eye Aspect Ratio (EAR)** & **Blink Rate** calculation (blinks/min over a 60s rolling window).
-   - **Mouth Aspect Ratio (MAR)** & Lip aperture dynamics.
-   - **3D Head Pose Estimation**: Perspective-n-Point (`cv2.solvePnP`) extracting Euler angles (Pitch, Yaw, Roll) and 3D orientation projection axes.
-   - **Kinematic Derivatives**: Real-time velocity (1st derivative), acceleration (2nd derivative), movement magnitude, and smoothed kinetic energy.
-   - **Blendshape / Action Unit Intensities**: Action unit feature intensities (strictly labeled as physiological action units, not emotional states).
+Use Python 3.10 or later. Install the project dependencies in a virtual environment:
 
-2. **Temporal Feature Buffer**:
-   - Sliding window buffer ($T \times D$, e.g. $64 \times 4233$).
-   - Per-frame timestamp tracking, jitter estimation, dropped frame detection, and fill telemetry (`BUFFER 64/64 READY`).
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-3. **Multi-Model ML Architectures**:
-   - `mlp`: Linear baseline with LayerNorm and temporal pooling.
-   - `temporal_cnn`: Multi-scale 1D dilated residual convolutional network.
-   - `cnn_lstm`: Spatial Conv1D front-end with 2-layer Bidirectional LSTM.
-   - `transformer`: Pre-LN Transformer encoder with multi-head self-attention and positional encoding.
-   - `multimodal`: Tri-stream multimodal fusion network disentangling spatial landmarks ($1415$), kinematics ($2810$), and blendshapes ($8$) with cross-modal fusion attention.
-   - `MultiTaskEEGHeads`: Predicts waveforms ($128$ samples), frequency band powers ($5$ bands), spectral distribution ($64$ bins), and heteroscedastic predictive uncertainty.
+Run the Streamlit interface:
 
-4. **Calibrated Uncertainty Estimation**:
-   - Monte Carlo Dropout inference for epistemic predictive variance.
-   - Explicit confidence reporting (`Confidence: N/A` when uncalibrated or checkpoint missing).
-   - Clear distinction: **Model confidence ≠ biological certainty**.
+```bash
+streamlit run app.py
+```
 
-5. **Research-Grade Scientific Monitoring Dashboard**:
-   - Dark scientific workstation UI (1600x960) with subtle mesh overlays, 3D pose vectors, and corner-bracket tracking.
-   - Dedicated **Live Statistics Panel** showing measured FPS, latency breakdown, buffer length, session duration, and face count.
-   - Real predicted neural oscillations and frequency band power sparklines (Delta, Theta, Alpha, Beta, Gamma).
-   - UI Modes:
-     * `demo`: Clean focus on live video, landmarks, and key dynamics.
-     * `research`: Comprehensive view with all telemetry, kinematics, buffer metrics, and model status.
-     * `validation`: Real-time predicted vs ground-truth comparison (MAE, RMSE, Pearson $r$, residual error) when synchronized data is provided.
+The Live tab can be opened without a camera or checkpoint. Choose a camera index in the sidebar and start tracking when a camera is available. The Results and About tabs provide experiment outputs and research limitations.
 
-6. **Rigorous Training & Evaluation Pipeline**:
-   - **Subject-Independent Splitting**: Strict `GroupShuffleSplit` and `GroupKFold` preventing data leakage between train and validation subjects.
-   - **Scientific Metrics**: MAE, RMSE, Pearson $r$, Spearman $\rho$, $R^2$, spectral correlation, and band power MAE.
-   - Automated generation of publication-ready figures in `results/`:
-     * `prediction_vs_ground_truth.png`
-     * `residuals.png`
-     * `loss_curves.png`
-     * `per_subject_metrics.png`
-     * `band_powers.png`
-     * `metrics.json` and `metrics_summary.csv`.
+## Live session workflow
 
----
+1. Select a camera index and configure mirroring and the landmark overlay.
+2. Start tracking. The main view shows blink rate, EAR, head pose, FPS, and blink count; additional metrics are available under **Advanced**.
+3. Optionally calibrate for ten seconds while maintaining a neutral expression.
+4. Enable **Record feature session** to write timestamped feature data to `data/recordings/` as CSV and NPZ files. Select **Also save raw video** only when video capture is needed.
+5. Add event markers during recording to support later alignment with an EEG device.
 
-## Quickstart & CLI Commands
-
-### Streamlit Live tab
-
-Launch the webcam interface with `streamlit run app.py`. The Live tab works
-without a camera or model: it shows an actionable camera message and the
-`EEG MODEL NOT LOADED` state. Facial measures are live landmark measurements;
-EEG output, when a compatible checkpoint is available, must be labeled
-**predicted, not measured**.
-
-Use the sidebar to select the camera, mirror the image, show landmarks, or
-calibrate for ten seconds while holding a neutral expression. Enable **Record
-feature session** to save timestamped CSV and NPZ files under
-`data/recordings/`; select **Also save raw video** only when that is intended.
-An event marker can be added during a recording to support later synchronization
-with an EEG device. Advanced displays MAR, action unit intensities, session
-timing, and processing latency. EAR can be less accurate with glasses.
+Glass reflections and frame quality can affect facial measurements, including EAR. Recorded features are camera-derived and are not EEG.
 
 ![Streamlit Live tab screenshot placeholder](docs/live-tab-screenshot.png)
 
-### 1. Launch Live Research Dashboard
+## Command-line workflows
+
+Start the desktop live dashboard:
+
 ```bash
-# Research mode (default)
-python3 main.py live --mode research
-
-# Demo mode
-python3 main.py live --mode demo
-
-# With a trained checkpoint
-python3 main.py live --checkpoint neurovision/models/checkpoints/best.pt --mode research
+python main.py live --mode research
+python main.py live --mode demo
+python main.py live --checkpoint neurovision/models/checkpoints/best.pt --mode research
 ```
 
-### 2. Train a Model on Synchronized Data
+Train a model using a synchronized dataset:
+
 ```bash
-python3 main.py train \
+python main.py train \
   --dataset neurovision/data/synchronized/dataset.npz \
   --model transformer \
   --out neurovision/models/checkpoints/best.pt
 ```
 
-### 3. Evaluate a Checkpoint
+Evaluate a checkpoint:
+
 ```bash
-python3 main.py evaluate \
+python main.py evaluate \
   --dataset neurovision/data/synchronized/test.npz \
   --checkpoint neurovision/models/checkpoints/best.pt \
   --out-dir results
 ```
 
-### 4. Run Subject-Independent Cross-Validation
+Run subject-independent cross-validation or baseline evaluation:
+
 ```bash
-python3 main.py cv \
+python main.py cv \
   --dataset neurovision/data/synchronized/dataset.npz \
   --model transformer \
   --folds 5 \
   --out-dir results/cv
 ```
 
-### 5. Evaluate Baseline Models
 ```bash
-python3 main.py baseline \
+python main.py baseline \
   --dataset neurovision/data/synchronized/dataset.npz \
   --folds 5
 ```
 
----
+## Dataset format
 
-## Dataset Format
+Training and evaluation datasets use NumPy `.npz` archives with these arrays:
 
-Training requires a synchronized `.npz` archive containing:
-- `facial`: shape `[N_windows, sequence_length, 4233]`
-- `eeg`: shape `[N_windows, eeg_window_samples]`
-- `subjects`: shape `[N_windows]` (subject identifiers)
+| Array | Shape | Description |
+| --- | --- | --- |
+| `facial` | `[N, sequence_length, 4233]` | Windowed facial feature sequences |
+| `eeg` | `[N, eeg_window_samples]` | Synchronized EEG windows |
+| `subjects` | `[N]` | Subject identifiers used for grouped splits |
 
-Windows from the same subject are strictly isolated to avoid subject leakage.
+Keep windows from each subject within a single split to avoid subject leakage. Raw or synchronized research data are not included in this repository.
 
----
+## Tests
 
-## Testing & Verification
-
-Run the comprehensive unit and integration test suite:
+Run the test suite and bytecode compilation with:
 
 ```bash
-# Verify compilation
-python3 -m compileall main.py neurovision
-
-# Run all tests
-python3 -m pytest -v
+python -m pytest -v
+python -m compileall -q main.py neurovision
 ```
 
+Tests use synthetic inputs and do not require camera hardware.
+
+## Evaluation snapshot
+
+The generated results below are a project snapshot, not evidence of validated EEG inference. In this snapshot, the permutation-test result does not show a statistically significant relationship. See `results/` for the underlying tables and control outputs.
 
 <!-- RESULTS_START -->
 ## Results (Auto-Generated)
