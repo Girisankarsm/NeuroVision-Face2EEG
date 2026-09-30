@@ -5,6 +5,8 @@
 sequence_length: 64         # Number of historical facial feature frames (approx. 2.1s at 30fps)
 eeg_window_samples: 128     # Target EEG window output samples (0.5s at 256Hz)
 eeg_sample_rate: 256.0      # EEG sampling rate in Hz
+target: "log_band_power"    # Primary prediction target
+primary_band: "alpha"       # Primary focus band
 
 # EEG Frequency Band Definitions (Hz)
 bands:
@@ -16,7 +18,7 @@ bands:
 
 # Model Architecture Defaults
 model:
-  feature_dim: 4233          # Normalized landmarks (1404) + Geometry (11) + Kinematics (2810) + Blendshapes (8)
+  feature_dim: 28            # Compact features (was 4233)
   hidden_dim: 256            # Latent representation width
   dropout: 0.15              # Regularization dropout probability
   attention_heads: 4         # Transformer multi-head attention heads

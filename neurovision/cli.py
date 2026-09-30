@@ -47,6 +47,11 @@ def main() -> None:
     baseline.add_argument("--dataset", required=True, help="Path to dataset .npz")
     baseline.add_argument("--folds", type=int, default=5, help="Number of cross-validation folds")
 
+    # 6. Experiment command
+    experiment = sub.add_parser("experiment", help="Run full pipeline: baselines, deep models, controls, and report")
+    experiment.add_argument("--dataset", required=True, help="Path to synchronized dataset .npz")
+    experiment.add_argument("--out-dir", default="results", help="Directory to save experiment results")
+
     args = parser.parse_args()
     config = load_config(args.config)
 
@@ -106,6 +111,12 @@ def main() -> None:
             folds=args.folds,
             sample_rate=float(config.get("eeg_sample_rate", 256.0)),
         )
+    elif args.command == "experiment":
+        from neurovision.training.experiment import run_full_experiment
+        from neurovision.training.report import write_report_to_readme
+
+        run_full_experiment(dataset_path=Path(args.dataset), output_dir=Path(args.out_dir))
+        write_report_to_readme(results_dir=Path(args.out_dir))
 
 
 if __name__ == "__main__":

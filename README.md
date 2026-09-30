@@ -61,6 +61,24 @@ NeuroVision is a scientific research instrument and machine learning pipeline de
 
 ## Quickstart & CLI Commands
 
+### Streamlit Live tab
+
+Launch the webcam interface with `streamlit run app.py`. The Live tab works
+without a camera or model: it shows an actionable camera message and the
+`EEG MODEL NOT LOADED` state. Facial measures are live landmark measurements;
+EEG output, when a compatible checkpoint is available, must be labeled
+**predicted, not measured**.
+
+Use the sidebar to select the camera, mirror the image, show landmarks, or
+calibrate for ten seconds while holding a neutral expression. Enable **Record
+feature session** to save timestamped CSV and NPZ files under
+`data/recordings/`; select **Also save raw video** only when that is intended.
+An event marker can be added during a recording to support later synchronization
+with an EEG device. Advanced displays MAR, action unit intensities, session
+timing, and processing latency. EAR can be less accurate with glasses.
+
+![Streamlit Live tab screenshot placeholder](docs/live-tab-screenshot.png)
+
 ### 1. Launch Live Research Dashboard
 ```bash
 # Research mode (default)
@@ -129,3 +147,31 @@ python3 -m compileall main.py neurovision
 # Run all tests
 python3 -m pytest -v
 ```
+
+
+<!-- RESULTS_START -->
+## Results (Auto-Generated)
+
+### Baseline Models
+| model              |      mae |     rmse |         r2 |
+|:-------------------|---------:|---------:|-----------:|
+| Ridge (Blink Only) | 0.246669 | 0.354735 |  0.143473  |
+| Training Mean      | 0.247105 | 0.354818 |  0.142308  |
+| SVR                | 0.258451 | 0.370907 |  0.0636294 |
+| Gradient Boosting  | 0.26218  | 0.380234 |  0.0244788 |
+| Ridge (Compact)    | 0.274594 | 0.392293 | -0.0623854 |
+
+### Deep Models (Cross-Validation)
+| model        |     mae |    rmse |        r2 |
+|:-------------|--------:|--------:|----------:|
+| temporal_cnn | 6.93462 | 8.83438 | -0.321529 |
+
+### Controls & Rigor
+- **Permutation Test p-value**: 0.9701492537313433
+- **Blink Ablation R² Drop**: -0.004943394660949707
+
+### Scientific Interpretation
+- **Are we predicting real EEG?** A p-value > 0.05 indicates the model is NOT learning a meaningful signal better than random chance.
+- **Is it just blinks?** If the blink ablation drop is large (e.g. > 0.05), the model is heavily relying on ocular artifacts rather than neural activity.
+
+<!-- RESULTS_END -->

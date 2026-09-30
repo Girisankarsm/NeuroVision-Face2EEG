@@ -7,7 +7,7 @@ import time
 import cv2
 import numpy as np
 
-from neurovision.preprocessing.facial import FacialFeatureState, extract_facial_feature_vector
+from neurovision.preprocessing.facial import FacialFeatureState, extract_compact_features
 from neurovision.realtime.camera import Camera
 from neurovision.realtime.eeg_prediction import band_percentages
 from neurovision.realtime.face_tracker import FaceTrackingResult, MediaPipeFaceTracker
@@ -99,7 +99,7 @@ def run_dashboard(
 
                 if tracking.landmarks is not None:
                     feat_start = time.perf_counter()
-                    feature, state = extract_facial_feature_vector(
+                    feature, state = extract_compact_features(
                         tracking.landmarks,
                         state,
                         tracking.blendshapes,

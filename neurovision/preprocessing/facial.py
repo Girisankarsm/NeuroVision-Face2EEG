@@ -23,6 +23,42 @@ CANONICAL_FACE_3D = np.array(
 
 HEAD_POSE_LANDMARK_INDICES = [1, 152, 33, 263, 61, 291]
 
+# ---------------------------------------------------------------------------
+# Action-Unit label mapping (replaces emotion-style blendshape names)
+# Each key is the physiological action unit name; values are MediaPipe
+# blendshape category names that best approximate that AU.
+# ---------------------------------------------------------------------------
+AU_LABEL_MAP: dict[str, list[str]] = {
+    "brow_raiser": ["browInnerUp", "browOuterUpLeft", "browOuterUpRight"],
+    "brow_lowerer": ["browDownLeft", "browDownRight"],
+    "eye_widener": ["eyeWideLeft", "eyeWideRight"],
+    "eye_squint": ["eyeSquintLeft", "eyeSquintRight"],
+    "cheek_raiser": ["cheekSquintLeft", "cheekSquintRight"],
+    "nose_wrinkler": ["noseSneerLeft", "noseSneerRight"],
+    "smile_AU12": ["mouthSmileLeft", "mouthSmileRight"],
+    "lip_depressor": ["mouthFrownLeft", "mouthFrownRight"],
+    "jaw_open": ["jawOpen"],
+    "lip_pucker": ["mouthPucker"],
+    "lip_stretch": ["mouthStretchLeft", "mouthStretchRight"],
+}
+
+# Ordered names for the compact AU feature vector
+COMPACT_AU_NAMES: list[str] = list(AU_LABEL_MAP.keys())
+
+# Legacy emotion-style names (kept for backward compat / full-feature mode)
+_LEGACY_BLENDSHAPE_NAMES = ["neutral", "happy", "sad", "angry", "fear", "surprise", "disgust"]
+
+# Mapping from legacy names to action-unit names for documentation
+LEGACY_TO_AU_MAP: dict[str, str] = {
+    "neutral": "baseline",
+    "happy": "smile_AU12",
+    "sad": "lip_depressor",
+    "angry": "brow_lowerer",
+    "fear": "brow_raiser",
+    "surprise": "eye_widener",
+    "disgust": "nose_wrinkler",
+}
+
 
 @dataclass
 class FacialFeatureState:
@@ -32,6 +68,7 @@ class FacialFeatureState:
     blink_timestamps: deque[float] = field(default_factory=lambda: deque(maxlen=300))
     is_blinking: bool = False
     blink_rate: float = 0.0
+    blink_threshold: float = 0.20
     left_ear: float = 0.0
     right_ear: float = 0.0
     avg_ear: float = 0.0
@@ -43,6 +80,13 @@ class FacialFeatureState:
     tvec: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
     mean_velocity: float = 0.0
     mean_acceleration: float = 0.0
+    # Previous head pose for velocity calculation
+    previous_head_pose: tuple[float, float, float] | None = None
+    head_pose_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Blink event flag (True on the frame a blink is first detected)
+    blink_event: bool = False
+    # AU intensities (action-unit based)
+    au_intensities: dict[str, float] = field(default_factory=dict)
 
 
 def normalized_landmarks(landmarks: np.ndarray) -> np.ndarray:
@@ -149,14 +193,25 @@ def estimate_head_pose(
         return np.zeros((3, 1), dtype=np.float64), np.zeros((3, 1), dtype=np.float64), (0.0, 0.0, 0.0)
 
     rmat, _ = cv2.Rodrigues(rvec)
-    # Extract Euler angles (pitch, yaw, roll)
-    # Using cv2.RQDecomp3x3
-    angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
-    pitch = float(angles[0])  # Nodding up/down
-    yaw = float(angles[1])    # Turning left/right
-    roll = float(angles[2])   # Tilting side-to-side
+    pitch, yaw, roll = rotation_matrix_to_head_angles(rmat)
 
     return rvec, tvec, (pitch, yaw, roll)
+
+
+def rotation_matrix_to_head_angles(rotation: np.ndarray) -> tuple[float, float, float]:
+    """Return pitch, yaw and roll while collapsing Euler 180-degree aliases.
+
+    RQ decomposition handles the matrix directly, avoiding the axis-angle
+    discontinuity around pi returned by Rodrigues vectors.
+    """
+    angles, *_ = cv2.RQDecomp3x3(np.asarray(rotation, dtype=np.float64))
+    wrapped = [((float(angle) + 180.0) % 360.0) - 180.0 for angle in angles]
+    pitch, yaw, roll = wrapped
+    pitch, yaw, roll = tuple(
+        angle - 180.0 if angle > 90.0 else angle + 180.0 if angle < -90.0 else angle
+        for angle in (pitch, yaw, roll)
+    )
+    return pitch, yaw, roll
 
 
 def geometric_features(landmarks: np.ndarray) -> np.ndarray:
@@ -182,6 +237,57 @@ def geometric_features(landmarks: np.ndarray) -> np.ndarray:
     roll_hint = float(np.arctan2(*(pts[263, :2] - pts[33, :2])[::-1])) if len(pts) > 263 else 0.0
     return np.asarray(values + [yaw_hint, pitch_hint, roll_hint], dtype=np.float32)
 
+
+# ---------------------------------------------------------------------------
+# Action-unit feature extraction (replaces emotion-style labels)
+# ---------------------------------------------------------------------------
+
+def extract_au_intensities(blendshapes: dict[str, float] | None) -> dict[str, float]:
+    """Extract action-unit intensities from MediaPipe blendshapes.
+
+    Maps raw MediaPipe blendshape scores to physiologically meaningful
+    action-unit names. Each AU intensity is the mean of its constituent
+    blendshape scores.
+    """
+    if not blendshapes:
+        return {name: 0.0 for name in COMPACT_AU_NAMES}
+
+    au_values: dict[str, float] = {}
+    for au_name, mp_names in AU_LABEL_MAP.items():
+        scores = [blendshapes.get(n, 0.0) for n in mp_names]
+        au_values[au_name] = float(np.mean(scores)) if scores else 0.0
+    return au_values
+
+
+def au_feature_vector(blendshapes: dict[str, float] | None) -> np.ndarray:
+    """Return a fixed-length AU intensity vector (len = len(COMPACT_AU_NAMES))."""
+    au = extract_au_intensities(blendshapes)
+    return np.asarray([au[name] for name in COMPACT_AU_NAMES], dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Legacy expression features (kept for full-feature backward compatibility)
+# ---------------------------------------------------------------------------
+
+def expression_features(blendshapes: dict[str, float] | None) -> np.ndarray:
+    """Legacy expression feature vector. Labels are now documented as AU approximations.
+
+    Mapping (kept for backward compatibility with existing checkpoints):
+      neutral → baseline, happy → smile_AU12, sad → lip_depressor,
+      angry → brow_lowerer, fear → brow_raiser, surprise → eye_widener,
+      disgust → nose_wrinkler
+    """
+    names = _LEGACY_BLENDSHAPE_NAMES
+    if not blendshapes:
+        return np.zeros(len(names) + 1, dtype=np.float32)
+    values = np.asarray([blendshapes.get(name, 0.0) for name in names], dtype=np.float32)
+    intensity = float(values[1:].max(initial=0.0))
+    return np.concatenate([values, np.asarray([intensity], dtype=np.float32)])
+
+
+# ---------------------------------------------------------------------------
+# Facial dynamics (velocity, acceleration, energy)
+# ---------------------------------------------------------------------------
 
 def facial_dynamics(
     landmarks: np.ndarray,
@@ -211,9 +317,11 @@ def facial_dynamics(
     # Blink detection & blink rate over 60 seconds rolling window
     blink_timestamps = state.blink_timestamps
     is_blinking = state.is_blinking
-    ear_threshold = 0.20
+    blink_event = False
+    ear_threshold = float(state.blink_threshold)
     if avg_ear < ear_threshold and not is_blinking:
         is_blinking = True
+        blink_event = True
         blink_timestamps.append(curr_time)
     elif avg_ear >= ear_threshold and is_blinking:
         is_blinking = False
@@ -228,6 +336,13 @@ def facial_dynamics(
     # Head pose estimation
     rvec, tvec, (pitch, yaw, roll) = estimate_head_pose(landmarks, image_shape)
 
+    # Head pose velocity
+    prev_pose = state.previous_head_pose
+    if prev_pose is not None:
+        pose_vel = (pitch - prev_pose[0], yaw - prev_pose[1], roll - prev_pose[2])
+    else:
+        pose_vel = (0.0, 0.0, 0.0)
+
     mean_vel = float(np.mean(np.abs(velocity)))
     mean_acc = float(np.mean(np.abs(acceleration)))
 
@@ -238,6 +353,7 @@ def facial_dynamics(
         blink_timestamps=blink_timestamps,
         is_blinking=is_blinking,
         blink_rate=blink_rate,
+        blink_threshold=state.blink_threshold,
         left_ear=left_ear,
         right_ear=right_ear,
         avg_ear=avg_ear,
@@ -249,29 +365,148 @@ def facial_dynamics(
         tvec=tvec,
         mean_velocity=mean_vel,
         mean_acceleration=mean_acc,
+        previous_head_pose=(pitch, yaw, roll),
+        head_pose_velocity=pose_vel,
+        blink_event=blink_event,
     )
     dynamics = np.concatenate([velocity, acceleration, np.asarray([magnitude, energy], dtype=np.float32)])
     return dynamics.astype(np.float32), next_state
 
 
-def expression_features(blendshapes: dict[str, float] | None) -> np.ndarray:
-    names = ["neutral", "happy", "sad", "angry", "fear", "surprise", "disgust"]
-    if not blendshapes:
-        return np.zeros(len(names) + 1, dtype=np.float32)
-    values = np.asarray([blendshapes.get(name, 0.0) for name in names], dtype=np.float32)
-    intensity = float(values[1:].max(initial=0.0))
-    return np.concatenate([values, np.asarray([intensity], dtype=np.float32)])
+# ---------------------------------------------------------------------------
+# Full feature vector (4233-dim, kept for ablation / backward compat)
+# ---------------------------------------------------------------------------
 
-
-def extract_facial_feature_vector(
+def extract_full_feature_vector(
     landmarks: np.ndarray,
     state: FacialFeatureState,
     blendshapes: dict[str, float] | None = None,
     timestamp: float | None = None,
     image_shape: tuple[int, int] = (480, 640),
 ) -> tuple[np.ndarray, FacialFeatureState]:
+    """Full 4233-dim feature vector (original pipeline, kept for ablation)."""
     pts = normalized_landmarks(landmarks).reshape(-1)
     geom = geometric_features(landmarks)
     dyn, next_state = facial_dynamics(landmarks, state, timestamp=timestamp, image_shape=image_shape)
     expr = expression_features(blendshapes)
     return np.concatenate([pts, geom, dyn, expr]).astype(np.float32), next_state
+
+
+# Backward-compatible alias
+extract_facial_feature_vector = extract_full_feature_vector
+
+
+# ---------------------------------------------------------------------------
+# Compact feature vector (~60 dims) — the new default
+# ---------------------------------------------------------------------------
+
+# Feature name list for documentation / column headers
+COMPACT_FEATURE_NAMES: list[str] = (
+    ["ear_left", "ear_right", "ear_avg", "blink_event", "blink_rate", "mar"]
+    + ["head_pitch", "head_yaw", "head_roll"]
+    + ["head_pitch_vel", "head_yaw_vel", "head_roll_vel"]
+    + ["facial_symmetry", "movement_magnitude", "movement_energy"]
+    + ["mean_velocity", "mean_acceleration"]
+    + [f"au_{name}" for name in COMPACT_AU_NAMES]
+)
+
+COMPACT_FEATURE_DIM = len(COMPACT_FEATURE_NAMES)  # should be ~28 per-frame
+
+
+def extract_compact_features(
+    landmarks: np.ndarray,
+    state: FacialFeatureState,
+    blendshapes: dict[str, float] | None = None,
+    timestamp: float | None = None,
+    image_shape: tuple[int, int] = (480, 640),
+) -> tuple[np.ndarray, FacialFeatureState]:
+    """Compact per-frame feature vector (~28 dims).
+
+    Features:
+    - EAR (left, right, average)
+    - Blink event flag (0/1), blink rate (blinks/min over 60s window)
+    - MAR (mouth aspect ratio)
+    - Head pose (pitch, yaw, roll) in degrees
+    - Head pose velocity (pitch_vel, yaw_vel, roll_vel)
+    - Facial symmetry
+    - Movement magnitude and smoothed energy
+    - Mean velocity, mean acceleration
+    - Action-unit intensities (len(COMPACT_AU_NAMES) values)
+    """
+    # Run dynamics to update state
+    _, next_state = facial_dynamics(
+        landmarks, state, timestamp=timestamp, image_shape=image_shape
+    )
+
+    # AU intensities
+    au_vec = au_feature_vector(blendshapes)
+    next_state.au_intensities = extract_au_intensities(blendshapes)
+
+    features = np.array([
+        next_state.left_ear,
+        next_state.right_ear,
+        next_state.avg_ear,
+        float(next_state.blink_event),
+        next_state.blink_rate,
+        next_state.mar,
+        next_state.head_pose[0],  # pitch
+        next_state.head_pose[1],  # yaw
+        next_state.head_pose[2],  # roll
+        next_state.head_pose_velocity[0],  # pitch vel
+        next_state.head_pose_velocity[1],  # yaw vel
+        next_state.head_pose_velocity[2],  # roll vel
+        next_state.facial_symmetry,
+        next_state.mean_velocity * 100.0,  # scale for numerical stability
+        next_state.movement_energy,
+        next_state.mean_velocity,
+        next_state.mean_acceleration,
+    ], dtype=np.float32)
+
+    return np.concatenate([features, au_vec]).astype(np.float32), next_state
+
+
+# ---------------------------------------------------------------------------
+# Windowed statistics (computed over a buffer of compact feature frames)
+# ---------------------------------------------------------------------------
+
+def compute_windowed_stats(buffer: np.ndarray) -> np.ndarray:
+    """Compute windowed statistics over a (T, D) buffer of compact features.
+
+    For each feature dimension, computes: mean, std, min, max, energy.
+    Also computes spectral power (sum of |FFT|^2) for EAR (col 2) and
+    head motion magnitude (cols 6-8).
+
+    Returns a 1-D vector of shape (D*5 + 4,).
+    """
+    if buffer.ndim != 2 or buffer.shape[0] < 2:
+        # Return zeros if buffer is too small
+        d = buffer.shape[1] if buffer.ndim == 2 else 1
+        return np.zeros(d * 5 + 4, dtype=np.float32)
+
+    T, D = buffer.shape
+    means = buffer.mean(axis=0)
+    stds = buffer.std(axis=0)
+    mins = buffer.min(axis=0)
+    maxs = buffer.max(axis=0)
+    energy = np.mean(buffer ** 2, axis=0)
+
+    # Spectral power for key signals
+    def _spectral_power(signal: np.ndarray) -> float:
+        fft_vals = np.fft.rfft(signal - signal.mean())
+        return float(np.sum(np.abs(fft_vals) ** 2) / max(len(signal), 1))
+
+    ear_col = 2  # ear_avg
+    spec_ear = _spectral_power(buffer[:, ear_col])
+    spec_pitch = _spectral_power(buffer[:, 6])
+    spec_yaw = _spectral_power(buffer[:, 7])
+    spec_roll = _spectral_power(buffer[:, 8])
+
+    return np.concatenate([
+        means, stds, mins, maxs, energy,
+        np.array([spec_ear, spec_pitch, spec_yaw, spec_roll], dtype=np.float32),
+    ]).astype(np.float32)
+
+
+def compact_window_feature_dim() -> int:
+    """Return the dimensionality of the compact windowed feature vector."""
+    return COMPACT_FEATURE_DIM * 5 + 4
