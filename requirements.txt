@@ -6,6 +6,7 @@ torch>=2.1
 opencv-python>=4.8
 mediapipe>=0.10,<1.0
 matplotlib>=3.7
+seaborn>=0.13
 PyYAML>=6.0
 mne>=1.5
 pyqtgraph>=0.13

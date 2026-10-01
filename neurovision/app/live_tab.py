@@ -5,8 +5,10 @@ import time
 from pathlib import Path
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import streamlit as st
 
 from neurovision.config import load_config
@@ -33,6 +35,72 @@ from neurovision.realtime.recording import (
 
 def _badge(icon: str, label: str, state: str) -> str:
     return f'<span class="status-{state}">{icon} {label}</span>'
+
+
+def _chart_theme() -> None:
+    sns.set_theme(style="whitegrid", context="notebook")
+    plt.rcParams.update({
+        "figure.facecolor": "#121B2E",
+        "axes.facecolor": "#121B2E",
+        "axes.edgecolor": "#31445D",
+        "axes.labelcolor": "#9FB4CC",
+        "xtick.color": "#9FB4CC",
+        "ytick.color": "#9FB4CC",
+        "grid.color": "#26364B",
+        "grid.linewidth": 0.7,
+        "text.color": "#E6EDF7",
+        "legend.facecolor": "#121B2E",
+        "legend.edgecolor": "#31445D",
+    })
+
+
+def _render_signal_chart(chart_slot: object, plot: pd.DataFrame) -> None:
+    _chart_theme()
+    figure, axis = plt.subplots(figsize=(8, 2.45), dpi=110)
+    signal_data = plot.reset_index().melt(id_vars="time", var_name="Signal", value_name="Value")
+    sns.lineplot(
+        data=signal_data,
+        x="time",
+        y="Value",
+        hue="Signal",
+        palette={"EAR": "#62B5F5", "Blink": "#F6A6A6", "Head motion": "#78D6C6"},
+        linewidth=1.7,
+        ax=axis,
+    )
+    axis.set_title("Facial signals | last 15 seconds", loc="left", fontsize=10, pad=8, weight="bold")
+    axis.set_xlabel("Seconds since tracking started")
+    axis.set_ylabel("Normalized value")
+    axis.legend(frameon=True, ncol=3, loc="upper left", fontsize=7)
+    figure.tight_layout(pad=1.1)
+    chart_slot.pyplot(figure, clear_figure=False, use_container_width=True)
+    plt.close(figure)
+
+
+def _render_band_chart(chart_slot: object, band_names: list[str], percentages: np.ndarray) -> None:
+    _chart_theme()
+    figure, axis = plt.subplots(figsize=(4.2, 2.0), dpi=110)
+    band_data = pd.DataFrame({"Band": band_names, "Power share": percentages * 100})
+    sns.barplot(data=band_data, x="Band", y="Power share", color="#62B5F5", ax=axis)
+    axis.set_title("Predicted EEG band power", loc="left", fontsize=10, pad=8, weight="bold")
+    axis.set_xlabel("")
+    axis.set_ylabel("Share (%)")
+    axis.tick_params(axis="x", labelrotation=25)
+    figure.tight_layout(pad=1.1)
+    chart_slot.pyplot(figure, clear_figure=False, use_container_width=True)
+    plt.close(figure)
+
+
+def _render_waveform_chart(chart_slot: object, sample_times: np.ndarray, waveform: np.ndarray) -> None:
+    _chart_theme()
+    figure, axis = plt.subplots(figsize=(4.2, 2.0), dpi=110)
+    waveform_data = pd.DataFrame({"Time": sample_times, "Amplitude": waveform})
+    sns.lineplot(data=waveform_data, x="Time", y="Amplitude", color="#78D6C6", linewidth=1.7, ax=axis)
+    axis.set_title("Model-predicted EEG waveform", loc="left", fontsize=10, pad=8, weight="bold")
+    axis.set_xlabel("Seconds")
+    axis.set_ylabel("Amplitude")
+    figure.tight_layout(pad=1.1)
+    chart_slot.pyplot(figure, clear_figure=False, use_container_width=True)
+    plt.close(figure)
 
 
 @st.cache_resource(show_spinner=False)
@@ -314,7 +382,7 @@ def render_live_tab():
                 rows = [row for row in rows if elapsed - row["time"] <= 15]
                 if frames % 3 == 0:
                     plot = pd.DataFrame(rows).set_index("time")
-                    chart_slot.line_chart(plot[["EAR", "Blink", "Head motion"]], height=190)
+                    _render_signal_chart(chart_slot, plot[["EAR", "Blink", "Head motion"]])
                 if show_advanced:
                     items = [("brow_raise_AU", au.get("brow_raiser", 0)), ("jaw_open_AU", au.get("jaw_open", 0)), ("smile_AU12", au.get("smile_AU12", 0))]
                     bars_slot.markdown("".join(
@@ -364,16 +432,10 @@ def render_live_tab():
             if show_advanced and new_prediction and last_prediction is not None:
                 band_names = ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
                 percentages = band_percentages(last_prediction.band_power)
-                predicted_bands_slot.bar_chart(
-                    pd.DataFrame({"Predicted power share (%)": percentages * 100}, index=band_names),
-                    height=145,
-                )
+                _render_band_chart(predicted_bands_slot, band_names, percentages)
                 sample_rate = float(model_config.get("eeg_sample_rate", 256.0))
                 sample_times = np.arange(len(last_prediction.waveform), dtype=np.float32) / sample_rate
-                predicted_waveform_slot.line_chart(
-                    pd.DataFrame({"Model-predicted output": last_prediction.waveform}, index=sample_times),
-                    height=145,
-                )
+                _render_waveform_chart(predicted_waveform_slot, sample_times, last_prediction.waveform)
                 confidence = (
                     f" · confidence {last_prediction.confidence:.0%}"
                     if last_prediction.confidence is not None else ""

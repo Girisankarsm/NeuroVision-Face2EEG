@@ -1,0 +1,431 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [8 0 R 9 0 R 10 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Length 3196 >>
+stream
+BT
+/F1 10 Tf
+50 780 Td
+13 TL
+/F2 16 Tf
+(NEUROVISION FACE2EEG) Tj
+0 -13 Td
+/F1 10 Tf
+(Brief algorithm and system explanation) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(CORE IDEA) Tj
+0 -13 Td
+/F1 10 Tf
+(The webcam measures facial dynamics. A trained model uses those dynamics to predict EEG-) Tj
+0 -13 Td
+/F1 10 Tf
+(related signals. The system does not measure EEG through the camera.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(1. END-TO-END PIPELINE) Tj
+0 -13 Td
+/F1 10 Tf
+(Camera frame) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> MediaPipe face landmarks and blendshapes) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> geometric, blink, mouth, pose, motion and action-unit features) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> 64-frame temporal window) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> Transformer encoder) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> predicted EEG waveform, band power, spectrum and uncertainty) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(Feature windows) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> subject normalization -> PCA) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> Gaussian Mixture Model \(GMM\)) Tj
+0 -13 Td
+/F1 10 Tf
+(  -> descriptive facial-state cluster probabilities) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(2. FACIAL FEATURE EXTRACTION) Tj
+0 -13 Td
+/F1 10 Tf
+(Each frame becomes measurable facial signals:) Tj
+0 -13 Td
+/F1 10 Tf
+(- Eye Aspect Ratio \(EAR\), blink events and rolling blink rate.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Mouth Aspect Ratio \(MAR\) and jaw opening.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Head pose: pitch, yaw and roll.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Landmark velocity, acceleration and movement energy.) Tj
+0 -13 Td
+/F1 10 Tf
+(- MediaPipe blendshapes mapped to approximate action-unit intensities.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(These measurements are grouped into 64-frame temporal windows so the model sees short-) Tj
+0 -13 Td
+/F1 10 Tf
+(term behavior, not only one image.) Tj
+0 -13 Td
+/F1 10 Tf
+(Implementation: neurovision/preprocessing/facial.py and neurovision/app/live_tab.py.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(3. WHY USE A GAUSSIAN MIXTURE MODEL?) Tj
+0 -13 Td
+/F1 10 Tf
+(The project does not begin with labeled facial-state categories. It discovers recurring) Tj
+0 -13 Td
+/F1 10 Tf
+(patterns in facial behavior. Facial behavior is continuous, and one window can partially) Tj
+0 -13 Td
+/F1 10 Tf
+(resemble more than one state.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(GMM is useful because:) Tj
+0 -13 Td
+/F1 10 Tf
+(- It models each state as a Gaussian distribution in feature space.) Tj
+0 -13 Td
+/F1 10 Tf
+(- It produces soft probabilities, not only a hard label.) Tj
+0 -13 Td
+/F1 10 Tf
+(- It can represent clusters with different sizes, orientations and variances.) Tj
+0 -13 Td
+/F1 10 Tf
+(- It gives useful ambiguity information when a window lies between states.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(Before GMM, features are normalized per subject and reduced with PCA. PCA keeps 95) Tj
+0 -13 Td
+/F1 10 Tf
+(percent of variance. The system tests 2 through 8 components and diagonal or full) Tj
+0 -13 Td
+/F1 10 Tf
+(covariance models, then selects the best combination using BIC.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(HOW GMM WORKS: EXPECTATION-MAXIMIZATION) Tj
+0 -13 Td
+ET
+endstream
+endobj
+4 0 obj
+<< /Length 3375 >>
+stream
+BT
+/F1 10 Tf
+50 780 Td
+13 TL
+/F1 10 Tf
+(1. Initialize several Gaussian components.) Tj
+0 -13 Td
+/F1 10 Tf
+(2. Expectation step: calculate each window's probability for every component.) Tj
+0 -13 Td
+/F1 10 Tf
+(3. Maximization step: update each component mean, covariance and mixture weight.) Tj
+0 -13 Td
+/F1 10 Tf
+(4. Repeat until the likelihood converges.) Tj
+0 -13 Td
+/F1 10 Tf
+(5. Select the best model using BIC on training data.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(The labels are descriptive suggestions such as frequent blinking, high head motion,) Tj
+0 -13 Td
+/F1 10 Tf
+(variable eye openness, increased mouth opening, or low-motion facial state. They are not) Tj
+0 -13 Td
+/F1 10 Tf
+(emotions, diagnoses or brain states.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(4. CLASSIFICATION VERSUS CLUSTERING) Tj
+0 -13 Td
+/F1 10 Tf
+(There is no conventional supervised emotion or clinical classifier in the live pipeline.) Tj
+0 -13 Td
+/F1 10 Tf
+(No labeled softmax model is trained for those classes.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(Clustering: GMM discovers facial behavior groups without class labels.) Tj
+0 -13 Td
+/F1 10 Tf
+(Cluster assignment: the live window is assigned to the highest-probability component.) Tj
+0 -13 Td
+/F1 10 Tf
+(Displayed state: a descriptive name is attached after inspecting component feature) Tj
+0 -13 Td
+/F1 10 Tf
+(averages.) Tj
+0 -13 Td
+/F1 10 Tf
+(Classification: this word may describe the assignment informally, but the method is) Tj
+0 -13 Td
+/F1 10 Tf
+(unsupervised clustering, not supervised classification.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(K-Means is also evaluated for comparison, but GMM is primary because it provides) Tj
+0 -13 Td
+/F1 10 Tf
+(probabilities.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(5. EEG REGRESSION MODEL) Tj
+0 -13 Td
+/F1 10 Tf
+(The EEG prediction task is supervised regression. Training data contains synchronized) Tj
+0 -13 Td
+/F1 10 Tf
+(facial windows and EEG targets. The default deep architecture is a Transformer encoder:) Tj
+0 -13 Td
+/F1 10 Tf
+(- Layer normalization and linear feature projection.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Positional encoding for temporal order.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Three Transformer encoder layers with four attention heads.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Mean pooling across the 64-frame sequence.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Multiple regression heads.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(Outputs:) Tj
+0 -13 Td
+/F1 10 Tf
+(- Waveform: 128 predicted EEG samples.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Band power: delta, theta, alpha, beta and gamma values.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Spectrum: 64 spectral-bin values.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Uncertainty: variance-related values used to estimate confidence.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(6. TRAINING OBJECTIVE) Tj
+0 -13 Td
+/F1 10 Tf
+(The multitask loss combines:) Tj
+0 -13 Td
+/F1 10 Tf
+(- Smooth L1 loss for waveform accuracy.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Fourier-domain loss for spectral similarity.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Mean squared error for band power.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Pearson correlation loss for waveform shape.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Heteroscedastic uncertainty loss for confidence estimation.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(Training and validation are subject-independent. Windows from the same subject are kept) Tj
+0 -13 Td
+ET
+endstream
+endobj
+5 0 obj
+<< /Length 1480 >>
+stream
+BT
+/F1 10 Tf
+50 780 Td
+13 TL
+/F1 10 Tf
+(out of both splits to reduce subject leakage.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(7. ADDITIONAL CLASSICAL REGRESSION) Tj
+0 -13 Td
+/F1 10 Tf
+(The clustering experiment compares:) Tj
+0 -13 Td
+/F1 10 Tf
+(- Ridge regression.) Tj
+0 -13 Td
+/F1 10 Tf
+(- RBF-kernel Support Vector Regression.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Gradient Boosting regression.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F1 10 Tf
+(Each model is tested with compact facial features alone and with facial features plus) Tj
+0 -13 Td
+/F1 10 Tf
+(GMM cluster probabilities. This checks whether discovered facial-state information) Tj
+0 -13 Td
+/F1 10 Tf
+(improves EEG prediction.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(8. LIMITATIONS) Tj
+0 -13 Td
+/F1 10 Tf
+(- EEG values in the live dashboard are model predictions, not camera measurements.) Tj
+0 -13 Td
+/F1 10 Tf
+(- GMM states describe facial behavior and are not emotions or neurological diagnoses.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Predicted EEG bands must be validated against real EEG recordings.) Tj
+0 -13 Td
+/F1 10 Tf
+(- Subject-independent evaluation is important because facial and EEG patterns vary) Tj
+0 -13 Td
+/F1 10 Tf
+(across people.) Tj
+0 -13 Td
+/F1 10 Tf
+() Tj
+0 -13 Td
+/F2 11 Tf
+(MAIN IMPLEMENTATION AREAS) Tj
+0 -13 Td
+/F1 10 Tf
+(neurovision/models) Tj
+0 -13 Td
+/F1 10 Tf
+(neurovision/clustering) Tj
+0 -13 Td
+/F1 10 Tf
+(neurovision/preprocessing) Tj
+0 -13 Td
+/F1 10 Tf
+(neurovision/realtime) Tj
+0 -13 Td
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> /Contents 3 0 R >>
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> /Contents 4 0 R >>
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> /Contents 5 0 R >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000134 00000 n 
+0000003382 00000 n 
+0000006809 00000 n 
+0000008341 00000 n 
+0000008411 00000 n 
+0000008486 00000 n 
+0000008622 00000 n 
+0000008758 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R >>
+startxref
+8895
+%%EOF

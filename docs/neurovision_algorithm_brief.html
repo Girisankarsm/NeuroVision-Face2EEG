@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NeuroVision Face2EEG - Algorithm Brief</title>
+<style>
+  @page { size: A4; margin: 18mm 17mm; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: #172033; font-size: 10.5pt; line-height: 1.42; }
+  h1 { color: #0a6f93; font-size: 24pt; margin: 0 0 4px; }
+  h2 { color: #0a6f93; font-size: 15pt; margin: 18px 0 6px; border-bottom: 1px solid #b9d8e4; padding-bottom: 3px; }
+  h3 { color: #20556b; font-size: 11.5pt; margin: 12px 0 3px; }
+  p { margin: 5px 0; }
+  ul { margin: 4px 0 7px 19px; padding: 0; }
+  li { margin: 2px 0; }
+  .subtitle { color: #526477; font-size: 11pt; margin-bottom: 14px; }
+  .box { background: #eef7fa; border-left: 4px solid #2aa8d4; padding: 8px 11px; margin: 8px 0; }
+  .flow { background: #f4f6f8; border: 1px solid #d2dbe2; padding: 9px 11px; font-family: "SFMono-Regular", Menlo, monospace; font-size: 9pt; white-space: pre-wrap; }
+  .two { display: flex; gap: 18px; }
+  .col { flex: 1; }
+  .small { color: #526477; font-size: 9pt; }
+  table { width: 100%; border-collapse: collapse; margin: 7px 0; font-size: 9.5pt; }
+  th { background: #dceff5; text-align: left; }
+  th, td { border: 1px solid #c6d3da; padding: 5px 6px; vertical-align: top; }
+  code { font-family: "SFMono-Regular", Menlo, monospace; font-size: 9pt; color: #174e66; }
+  .footer { margin-top: 18px; padding-top: 6px; border-top: 1px solid #c6d3da; color: #657788; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+<h1>NeuroVision Face2EEG</h1>
+<div class="subtitle">Brief algorithm and system explanation</div>
+
+<div class="box"><b>Core idea:</b> the webcam measures facial dynamics. A trained model uses those dynamics to predict EEG-related signals. The system does not measure EEG through the camera.</div>
+
+<h2>1. End-to-end pipeline</h2>
+<div class="flow">Camera frame
+    -> MediaPipe face landmarks and blendshapes
+    -> geometric, blink, mouth, pose, motion and action-unit features
+    -> 64-frame temporal window
+    -> Transformer encoder
+    -> predicted EEG waveform, band power, spectrum and uncertainty
+
+Feature windows
+    -> subject normalization -> PCA
+    -> Gaussian Mixture Model (GMM)
+    -> descriptive facial-state cluster probabilities</div>
+
+<h2>2. Facial feature extraction</h2>
+<p>Each frame is converted into measurable facial signals:</p>
+<ul>
+  <li>Eye Aspect Ratio (EAR), blink events and rolling blink rate.</li>
+  <li>Mouth Aspect Ratio (MAR) and jaw opening.</li>
+  <li>Head pose: pitch, yaw and roll.</li>
+  <li>Landmark velocity, acceleration and movement energy.</li>
+  <li>MediaPipe blendshapes mapped to approximate action-unit intensities.</li>
+</ul>
+<p>These measurements are grouped into a temporal window of 64 frames, preserving short-term facial behavior rather than using only one image.</p>
+<p class="small">Implementation: <code>neurovision/preprocessing/facial.py</code> and <code>neurovision/app/live_tab.py</code>.</p>
+
+<h2>3. Why Gaussian Mixture Model clustering?</h2>
+<p>The project does not start with labeled facial-state categories. Instead, it discovers recurring patterns in facial behavior. A GMM is suitable because facial behavior is continuous and a window can partially resemble more than one state.</p>
+<ul>
+  <li>It models each state as a Gaussian distribution in feature space.</li>
+  <li>It produces soft probabilities, not only a hard label.</li>
+  <li>It can represent clusters with different sizes, orientations and variances.</li>
+  <li>It gives a useful uncertainty signal when a window lies between states.</li>
+</ul>
+<p>Before GMM, features are normalized per subject and reduced with PCA. PCA preserves 95% of the variance. The system tests component counts from 2 to 8 and diagonal or full covariance models, selecting the best combination using Bayesian Information Criterion (BIC).</p>
+
+<h3>How the GMM algorithm works</h3>
+<ol>
+  <li><b>Initialize:</b> create candidate Gaussian components.</li>
+  <li><b>Expectation step:</b> calculate the probability that each window belongs to each component.</li>
+  <li><b>Maximization step:</b> update each component mean, covariance and mixture weight.</li>
+  <li><b>Repeat:</b> continue until the likelihood converges.</li>
+  <li><b>Select:</b> choose the model with the lowest BIC on training data.</li>
+</ol>
+<div class="box"><b>Important:</b> names such as "frequent blinking" or "high head motion" are descriptive suggestions generated from cluster averages. They are not emotions, diagnoses or brain states.</div>
+
+<h2>4. Classification versus clustering</h2>
+<p>There is no conventional supervised classifier in the live pipeline. There is no labeled softmax model trained to classify emotions or clinical states.</p>
+<table>
+<tr><th>Term</th><th>What happens here</th></tr>
+<tr><td>Clustering</td><td>GMM discovers facial behavior groups without class labels.</td></tr>
+<tr><td>Cluster assignment</td><td>The live window is assigned to the highest-probability GMM component.</td></tr>
+<tr><td>Displayed state</td><td>A descriptive name is attached to that component after inspecting its feature averages.</td></tr>
+<tr><td>Classification</td><td>Only used informally to describe the cluster assignment; it is not supervised classification.</td></tr>
+</table>
+<p>K-Means is also evaluated as a comparison method, but GMM is the primary clustering method because it provides probabilities.</p>
+
+<h2>5. EEG regression model</h2>
+<p>The EEG prediction task is supervised regression. Training data contains synchronized facial windows and EEG targets. The default deep architecture is a Transformer encoder:</p>
+<ul>
+  <li>Layer normalization and linear feature projection.</li>
+  <li>Learned temporal representation using positional encoding.</li>
+  <li>Three Transformer encoder layers with four attention heads.</li>
+  <li>Mean pooling across the 64-frame sequence.</li>
+  <li>Multiple regression heads for different EEG outputs.</li>
+</ul>
+<table>
+<tr><th>Output</th><th>Meaning</th></tr>
+<tr><td>Waveform</td><td>128 predicted EEG samples.</td></tr>
+<tr><td>Band power</td><td>Five continuous values: delta, theta, alpha, beta and gamma.</td></tr>
+<tr><td>Spectrum</td><td>64 spectral-bin values.</td></tr>
+<tr><td>Uncertainty</td><td>Predicted variance-related values used to estimate confidence.</td></tr>
+</table>
+
+<h2>6. Training objective</h2>
+<p>The model uses a multitask loss so it learns both the waveform shape and its frequency characteristics:</p>
+<ul>
+  <li>Smooth L1 loss for waveform accuracy.</li>
+  <li>Fourier-domain loss for spectral similarity.</li>
+  <li>Mean squared error for band power.</li>
+  <li>Pearson correlation loss for matching waveform shape.</li>
+  <li>Heteroscedastic uncertainty loss for confidence estimation.</li>
+</ul>
+<p>Training and validation are subject-independent: windows from the same subject are not allowed to appear in both splits. This reduces subject leakage.</p>
+
+<h2>7. Additional classical regression experiment</h2>
+<p>The clustering analysis also compares three multi-output regressors:</p>
+<ul>
+  <li>Ridge regression</li>
+  <li>RBF-kernel Support Vector Regression</li>
+  <li>Gradient Boosting regression</li>
+</ul>
+<p>Each is tested with compact facial features alone and with facial features plus GMM cluster probabilities. This checks whether the discovered facial-state information improves EEG prediction.</p>
+
+<h2>8. Interpretation and limitations</h2>
+<ul>
+  <li>EEG values shown in the live dashboard are model predictions, not camera measurements.</li>
+  <li>GMM states describe facial behavior and should not be interpreted as emotions or neurological diagnoses.</li>
+  <li>Predicted alpha, beta or other band values should be validated against real EEG recordings.</li>
+  <li>Subject-independent evaluation is essential because facial style and EEG patterns vary across people.</li>
+</ul>
+
+<div class="footer">Repository: NeuroVision-Face2EEG | Main implementation areas: <code>neurovision/models</code>, <code>neurovision/clustering</code>, <code>neurovision/preprocessing</code>, and <code>neurovision/realtime</code>.</div>
+</body>
+</html>
