@@ -7,7 +7,7 @@ NeuroVision is a research pipeline for studying whether facial movement features
 ## Features
 
 - **Live facial tracking:** MediaPipe landmarks, eye aspect ratio (EAR), blink rate, mouth aspect ratio (MAR), head pose, movement, and action-unit intensities.
-- **Streamlit interface:** live metrics, tracking quality hints, neutral-face calibration, feature recording, and optional raw-video recording.
+- **Streamlit interface:** live facial metrics, tracking quality hints, neutral-face calibration, feature recording, optional raw-video recording, and checkpoint-backed EEG predictions.
 - **Temporal data pipeline:** timestamp alignment, feature windows, dataset normalization, and subject-aware splits.
 - **Modeling and evaluation:** MLP, temporal CNN, CNN-LSTM, Transformer, and multimodal architectures; cross-validation, statistical baselines, and evaluation reports.
 - **Prediction uncertainty:** Monte Carlo Dropout and model uncertainty estimates where supported.
@@ -41,6 +41,21 @@ The Live tab can be opened without a camera or checkpoint. Choose a camera index
 
 Glass reflections and frame quality can affect facial measurements, including EAR. Recorded features are camera-derived and are not EEG.
 
+## Supervised EEG predictions
+
+The Streamlit Live tab loads `neurovision/models/checkpoints/best.pt` by default. Use the **EEG checkpoint** field in the sidebar to select another trained checkpoint. The app reads the sequence length and feature dimension from the checkpoint, buffers contiguous face-tracked frames, and predicts after a complete window is available. Inference is rate-limited to at most twice per second. The default checkpoint expects 64 frames of 4,233 full facial features; compact checkpoints expecting 28 features use the compact extractor instead.
+
+The Live view shows predicted alpha power. Under **Advanced**, it shows the predicted band-power distribution and waveform. These are model outputs, not EEG measurements; they require validation against synchronized recordings and may reflect facial artifacts. `MODEL NOT LOADED` means the selected checkpoint could not be loaded; the status detail provides the reason. The Results tab displays saved results only; train checkpoints from the command line:
+
+```bash
+python main.py train \
+  --dataset neurovision/data/synchronized/dataset.npz \
+  --model transformer \
+  --out neurovision/models/checkpoints/best.pt
+```
+
+The default config and this example use compact 28-feature inputs. The training config's `model.feature_dim` must match the dataset's per-frame facial feature width. A checkpoint trained on compact 28-feature inputs and one trained on 4,233 full features are not interchangeable.
+
 ## Unsupervised analysis
 
 The `cluster` command summarizes compact facial features over 2–4 second windows, then discovers facial-state patterns with a Gaussian Mixture Model (GMM). GMM component count (`k=2..8`) and diagonal/full covariance are selected by BIC. K-Means is the baseline, selecting `k` by training-fold silhouette with `n_init=20`. Suggested names such as “frequent blinking” describe facial patterns only and require manual review.
@@ -63,6 +78,7 @@ The frame count divided by `--fps` must describe a 2–4 second window; the defa
 ## Status
 
 - Clustering code has been exercised on `synthetic_data.npz` and on planted three-state recovery tests, all labeled **SYNTHETIC SANITY CHECK**. These runs validate implementation behavior only.
+- The checked-in EEG checkpoint loads in Streamlit and passes a **SYNTHETIC SANITY CHECK** for output shape/finite values. No prediction from synthetic input is presented as a research result.
 - No MAHNOB-HCI or user-recorded dataset has been analyzed by the clustering pipeline yet. Do not interpret the checked-in supervised evaluation snapshot as evidence for clustering results.
 
 ![Streamlit Live tab screenshot placeholder](docs/live-tab-screenshot.png)

@@ -3,7 +3,9 @@ import numpy as np
 import cv2
 import os
 import glob
+from pathlib import Path
 import pandas as pd
+import torch
 from unittest.mock import patch
 
 from neurovision.preprocessing.facial import (
@@ -14,7 +16,8 @@ from neurovision.preprocessing.facial import (
     facial_dynamics,
     rotation_matrix_to_head_angles,
 )
-from neurovision.app.live_tab import _estimate_facial_state
+from neurovision.app.live_tab import _estimate_facial_state, _model_feature
+from neurovision.config import load_config
 from neurovision.realtime.recording import (
     LIVE_TARGET_FPS,
     RECORDING_COLUMNS,
@@ -22,6 +25,7 @@ from neurovision.realtime.recording import (
     relative_chart_time,
     save_recording,
 )
+from neurovision.realtime.inference import EEGPredictor
 
 def test_head_pose_conversion():
     # Simulate a straight face rotation matrix (near 180 degrees)
@@ -88,6 +92,63 @@ def test_live_cluster_artifact_is_optional_and_uses_probabilities():
     estimate = _estimate_facial_state([np.zeros(28)] * 64, artifact)
     assert estimate.startswith("frequent blinking")
     assert "90%" in estimate
+
+
+def test_model_feature_matches_checkpoint_dimensions():
+    landmarks = np.zeros((468, 3), dtype=np.float32)
+    state = FacialFeatureState()
+    compact = np.ones(28, dtype=np.float32)
+
+    compact_result, compact_state = _model_feature(
+        28, compact, landmarks, state, None, 1.0, (480, 640)
+    )
+    assert compact_result is compact
+    assert compact_state is state
+
+    full = np.zeros(4233, dtype=np.float32)
+    with patch("neurovision.app.live_tab.extract_full_feature_vector", return_value=(full, state)):
+        full_result, full_state = _model_feature(
+            4233, compact, landmarks, state, None, 1.0, (480, 640)
+        )
+    assert full_result.shape == (4233,)
+    assert full_state is state
+    assert _model_feature(123, compact, landmarks, state, None, 1.0, (480, 640))[0] is None
+
+
+def test_checked_in_eeg_checkpoint_predicts_expected_shapes(monkeypatch):
+    """SYNTHETIC SANITY CHECK: verify checkpoint inference from extracted full facial features."""
+    checkpoint = Path(__file__).resolve().parents[1] / "neurovision/models/checkpoints/best.pt"
+    assert checkpoint.exists()
+    monkeypatch.setattr(EEGPredictor, "_device", staticmethod(lambda: torch.device("cpu")))
+    predictor = EEGPredictor(checkpoint, fallback_config=load_config("configs/config.yaml"))
+
+    assert predictor.status == "READY", predictor.status_detail
+    assert predictor.metadata.input_dim == (64, 4233)
+    landmarks = np.zeros((468, 3), dtype=np.float32)
+    landmarks[:, 0] = np.linspace(0.1, 0.9, len(landmarks))
+    landmarks[:, 1] = np.linspace(0.2, 0.8, len(landmarks))
+    full_feature, _ = _model_feature(
+        4233, np.zeros(28, dtype=np.float32), landmarks, FacialFeatureState(),
+        None, 1.0, (480, 640),
+    )
+    assert full_feature.shape == (4233,)
+    sequence = np.broadcast_to(full_feature, (1, 64, 4233)).copy()
+    prediction = predictor.predict(sequence)
+
+    assert prediction is not None
+    assert prediction.waveform.shape == (128,)
+    assert prediction.band_power.shape == (5,)
+    assert np.isfinite(prediction.waveform).all()
+    assert np.isfinite(prediction.band_power).all()
+
+
+def test_missing_eeg_checkpoint_remains_unloaded(tmp_path):
+    predictor = EEGPredictor(
+        tmp_path / "missing.pt",
+        fallback_config=load_config("configs/config.yaml"),
+    )
+    assert predictor.status == "MODEL NOT LOADED"
+    assert "not found" in predictor.status_detail
 
 
 def test_recording_files_load_with_schema(tmp_path):

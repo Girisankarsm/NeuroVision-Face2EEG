@@ -9,14 +9,20 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from neurovision.config import load_config
 from neurovision.preprocessing.facial import (
+    COMPACT_FEATURE_DIM,
     FacialFeatureState,
     calibrated_blink_threshold,
     compute_windowed_stats,
     extract_compact_features,
+    extract_full_feature_vector,
 )
 from neurovision.realtime.camera import open_capture, release_capture
+from neurovision.realtime.eeg_prediction import band_percentages
+from neurovision.realtime.feature_buffer import TemporalFeatureBuffer
 from neurovision.realtime.face_tracker import MediaPipeFaceTracker
+from neurovision.realtime.inference import EEGPredictor, Prediction
 from neurovision.realtime.recording import (
     LIVE_TARGET_FPS,
     blink_warmup_label,
@@ -27,6 +33,30 @@ from neurovision.realtime.recording import (
 
 def _badge(icon: str, label: str, state: str) -> str:
     return f'<span class="status-{state}">{icon} {label}</span>'
+
+
+@st.cache_resource(show_spinner=False)
+def _load_eeg_predictor(checkpoint_path: str, checkpoint_mtime_ns: int) -> EEGPredictor:
+    _ = checkpoint_mtime_ns
+    return EEGPredictor(checkpoint_path, fallback_config=load_config("configs/config.yaml"))
+
+
+def _model_feature(
+    feature_dim: int,
+    compact_feature: np.ndarray,
+    landmarks: np.ndarray,
+    state: FacialFeatureState,
+    blendshapes: dict[str, float] | None,
+    timestamp: float,
+    image_shape: tuple[int, int],
+) -> tuple[np.ndarray | None, FacialFeatureState]:
+    if feature_dim == COMPACT_FEATURE_DIM:
+        return compact_feature, state
+    if feature_dim == 4233:
+        return extract_full_feature_vector(
+            landmarks, state, blendshapes, timestamp=timestamp, image_shape=image_shape
+        )
+    return None, state
 
 
 def _estimate_facial_state(feature_window: list[np.ndarray], artifact: dict | None) -> str:
@@ -52,7 +82,7 @@ def _estimate_facial_state(feature_window: list[np.ndarray], artifact: dict | No
 
 def render_live_tab():
     st.header("Live Webcam Feed")
-    st.caption("Facial measurements are derived from webcam landmarks. EEG is never measured by this app.")
+    st.caption("Facial features are measured from webcam landmarks. EEG values are checkpoint predictions, never camera measurements.")
     ss = st.session_state
     defaults = {"calib_start": None, "calib_ears": [], "baseline_ear": None,
                 "blink_total": 0, "record_rows": [], "record_started": None,
@@ -69,6 +99,11 @@ def render_live_tab():
         show_landmarks = st.checkbox("Landmark overlay", value=True)
         ss.overlay_opacity = st.slider("Overlay opacity", 0.1, 1.0, float(ss.overlay_opacity))
         show_advanced = st.toggle("Advanced", value=False) if hasattr(st, "toggle") else st.checkbox("Advanced", value=False)
+        checkpoint_input = st.text_input(
+            "EEG checkpoint",
+            value="neurovision/models/checkpoints/best.pt",
+            help="Checkpoint used for model-predicted EEG output.",
+        )
         st.divider()
         st.caption("Face tracking only · no EEG is measured")
         if st.button("Calibrate neutral face (10 seconds)"):
@@ -100,6 +135,23 @@ def render_live_tab():
             if st.button("Add event marker"):
                 ss.markers.append({"timestamp": time.time(), "elapsed": time.time()-ss.record_started})
 
+    checkpoint_path = Path(checkpoint_input).expanduser()
+    try:
+        checkpoint_mtime_ns = checkpoint_path.stat().st_mtime_ns
+    except OSError:
+        checkpoint_mtime_ns = -1
+    predictor = _load_eeg_predictor(str(checkpoint_path), checkpoint_mtime_ns)
+    model_config = predictor.config or load_config("configs/config.yaml")
+    if predictor.status == "READY":
+        sequence_length, feature_dim = predictor.metadata.input_dim
+    else:
+        sequence_length = int(model_config.get("sequence_length", 64))
+        feature_dim = int(model_config.get("model", {}).get("feature_dim", COMPACT_FEATURE_DIM))
+    feature_compatible = feature_dim in {COMPACT_FEATURE_DIM, 4233}
+    eeg_model_ready = predictor.status == "READY" and feature_compatible
+    model_status = predictor.status if feature_compatible else "MODEL ERROR"
+    model_detail = predictor.status_detail if feature_compatible else f"Unsupported checkpoint feature dimension: {feature_dim}"
+
     status = st.empty()
     left, right = st.columns([6, 4])
     with left:
@@ -113,28 +165,34 @@ def render_live_tab():
         blink_metric, ear_metric = a.empty(), b.empty()
         pose_metric, fps_metric = a.empty(), b.empty()
         total_metric = st.empty()
+        predicted_alpha_metric = st.empty()
         st.subheader("Facial signals · last 15 seconds")
         st.caption("Horizontal axis: seconds since tracking started")
         chart_slot = st.empty()
         if show_advanced:
-            st.subheader("Action unit intensities")
+            st.subheader("Model outputs and action units")
             mar_metric, bars_slot = st.empty(), st.empty()
             cluster_state_metric = st.empty()
             st.caption("Facial-state estimate, not a brain state")
+            prediction_detail_slot = st.empty()
+            predicted_bands_slot = st.empty()
+            predicted_waveform_slot = st.empty()
             session_slot, latency_slot = st.empty(), st.empty()
             model_box = st.container(border=True)
             with model_box:
-                st.markdown("**EEG MODEL NOT LOADED**")
-                st.caption("No model loaded. Load a checkpoint or train one from the Results tab.")
-                st.caption("Predictions are predicted, not measured.")
+                st.markdown(f"**EEG MODEL {model_status}**")
+                st.caption(model_detail)
+                st.caption("Predicted EEG is model output, not a measurement.")
 
     if not run_camera:
+        predicted_alpha_metric.metric("Predicted alpha power", "N/A")
         if show_advanced:
             cluster_state_metric.metric("Facial state", "N/A")
+            prediction_detail_slot.caption("Start tracking to produce a model prediction." if eeg_model_ready else model_detail)
         status.markdown("  ".join([_badge("●", "Camera: not found / stopped", "neutral"),
                                   _badge("●", "Face: not detected", "neutral"),
-                                  _badge("●", "Model: EEG MODEL NOT LOADED", "warning"),
-                                  _badge("●", "Buffer: 0/64", "neutral")]), unsafe_allow_html=True)
+                                  _badge("●", f"Model: {model_status}", "success" if eeg_model_ready else "warning"),
+                                  _badge("●", f"Buffer: 0/{sequence_length}", "neutral")]), unsafe_allow_html=True)
         return
 
     cap = None
@@ -151,6 +209,10 @@ def render_live_tab():
             return
 
         state = FacialFeatureState()
+        eeg_state = FacialFeatureState()
+        buffer = TemporalFeatureBuffer(sequence_length, feature_dim if feature_compatible else COMPACT_FEATURE_DIM)
+        last_prediction: Prediction | None = None
+        last_prediction_time = 0.0
         cluster_artifact = None
         if show_advanced:
             artifact_path = Path("models/gmm.joblib")
@@ -175,6 +237,7 @@ def render_live_tab():
 
         while ss.get("live_camera_running", False):
             loop_start = time.time()
+            new_prediction = False
             ok, frame = cap.read()
             if not ok:
                 status.error("Camera connection was lost. Check that the camera is still connected.")
@@ -194,6 +257,24 @@ def render_live_tab():
                 height, width = frame.shape[:2]
                 feature, state = extract_compact_features(tracking.landmarks, state, tracking.blendshapes,
                                                            timestamp=now, image_shape=(height, width))
+                model_feature, eeg_state = _model_feature(
+                    feature_dim, feature, tracking.landmarks, eeg_state,
+                    tracking.blendshapes, now, (height, width),
+                )
+                if model_feature is not None:
+                    buffer.append(model_feature, timestamp=now)
+                if eeg_model_ready and buffer.ready() and now - last_prediction_time >= 0.5:
+                    try:
+                        prediction = predictor.predict(buffer.tensor(), mc_dropout_passes=1)
+                        last_prediction_time = now
+                        if prediction is not None:
+                            last_prediction = prediction
+                            new_prediction = True
+                    except (RuntimeError, ValueError) as exc:
+                        eeg_model_ready = False
+                        model_status = "INFERENCE ERROR"
+                        model_detail = f"EEG inference failed: {exc}"
+                        last_prediction = None
                 ss.cluster_feature_window.append(feature.copy())
                 window_length = int(cluster_artifact.get("window_frames", 64)) if cluster_artifact else 64
                 ss.cluster_feature_window = ss.cluster_feature_window[-window_length:]
@@ -249,12 +330,18 @@ def render_live_tab():
                 pose = state.head_pose
                 values = (state.avg_ear, state.mar, *pose, int(state.blink_event), au.get("brow_raiser", 0), au.get("jaw_open", 0), au.get("smile_AU12", 0), 1)
             else:
+                buffer.reset()
+                eeg_state = FacialFeatureState()
+                last_prediction = None
                 ss.cluster_feature_window = []
                 blink_metric.metric("Blink rate", "N/A")
                 ear_metric.metric("EAR", "N/A")
                 pose_metric.metric("Head pose", "N/A")
                 if show_advanced:
                     cluster_state_metric.metric("Facial state", "N/A")
+                    predicted_bands_slot.empty()
+                    predicted_waveform_slot.empty()
+                    prediction_detail_slot.caption("No face detected. EEG prediction paused.")
                 quality_slot.caption("No face detected. Center your face in the camera view.")
                 values = (np.nan, np.nan, np.nan, np.nan, np.nan, 0, np.nan, np.nan, np.nan, 0)
 
@@ -265,6 +352,35 @@ def render_live_tab():
             ss.last_fps = current_fps
             fps_metric.metric("FPS", f"{current_fps:.1f}", help="Frames processed per second.")
             total_metric.metric("Total blinks", ss.blink_total, help="Blink events observed during this app session.")
+            predicted_alpha_metric.metric(
+                "Predicted alpha power",
+                f"{float(last_prediction.band_power[2]):.4g}" if last_prediction is not None else "N/A",
+                help="Checkpoint prediction from facial features; not measured EEG.",
+            )
+            if show_advanced and new_prediction and last_prediction is not None:
+                band_names = ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+                percentages = band_percentages(last_prediction.band_power)
+                predicted_bands_slot.bar_chart(
+                    pd.DataFrame({"Predicted power share (%)": percentages * 100}, index=band_names),
+                    height=170,
+                )
+                sample_rate = float(model_config.get("eeg_sample_rate", 256.0))
+                sample_times = np.arange(len(last_prediction.waveform), dtype=np.float32) / sample_rate
+                predicted_waveform_slot.line_chart(
+                    pd.DataFrame({"Model-predicted output": last_prediction.waveform}, index=sample_times),
+                    height=180,
+                )
+                confidence = (
+                    f" · confidence {last_prediction.confidence:.0%}"
+                    if last_prediction.confidence is not None else ""
+                )
+                prediction_detail_slot.caption(
+                    f"Latest checkpoint output · {len(last_prediction.waveform)} samples{confidence} · not measured EEG"
+                )
+            elif show_advanced and last_prediction is None:
+                prediction_detail_slot.caption(
+                    "Waiting for a complete facial feature window." if eeg_model_ready else model_detail
+                )
             last_blink = state.blink_timestamps[-1] if state.blink_timestamps else None
             total_metric.caption("Time since last blink: " + (f"{max(0, now-last_blink):.1f}s" if last_blink is not None else "N/A"))
             if record and ss.record_started:
@@ -272,8 +388,8 @@ def render_live_tab():
                 ss.record_rows.append(dict(zip(keys, [now, *values])))
             status.markdown("  ".join([_badge("●", "Camera: OK", "success"),
                                       _badge("●", f"Face: {'detected' if face_found else 'not detected'}", "success" if face_found else "error"),
-                                      _badge("●", "Model: EEG MODEL NOT LOADED", "warning"),
-                                      _badge("●", f"Buffer: {min(feature_frames,64)}/64", "neutral")]), unsafe_allow_html=True)
+                                      _badge("●", f"Model: {model_status}", "success" if eeg_model_ready else "warning"),
+                                      _badge("●", f"Buffer: {buffer.current_length}/{sequence_length}", "neutral")]), unsafe_allow_html=True)
             frame_slot.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
             if video_writer is not None:
                 video_writer.write(frame)
