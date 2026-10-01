@@ -89,6 +89,20 @@ class FacialFeatureState:
     au_intensities: dict[str, float] = field(default_factory=dict)
 
 
+def calibrated_blink_threshold(baseline_ear: float, ratio: float = 0.65) -> float:
+    """Return the EAR threshold used to detect blinks from an open-eye baseline."""
+    if not np.isfinite(baseline_ear) or baseline_ear <= 0.0:
+        raise ValueError("baseline_ear must be a finite positive value")
+    if not np.isfinite(ratio) or not 0.0 < ratio < 1.0:
+        raise ValueError("ratio must be between 0 and 1")
+    return float(baseline_ear * ratio)
+
+
+def calibrated_blink_detected(ear: float, threshold: float) -> bool:
+    """Return whether EAR is below a calibrated blink threshold."""
+    return bool(np.isfinite(ear) and np.isfinite(threshold) and threshold > 0.0 and ear < threshold)
+
+
 def normalized_landmarks(landmarks: np.ndarray) -> np.ndarray:
     pts = np.asarray(landmarks, dtype=np.float32).reshape(-1, 3)
     center = pts.mean(axis=0, keepdims=True)
@@ -319,7 +333,7 @@ def facial_dynamics(
     is_blinking = state.is_blinking
     blink_event = False
     ear_threshold = float(state.blink_threshold)
-    if avg_ear < ear_threshold and not is_blinking:
+    if calibrated_blink_detected(avg_ear, ear_threshold) and not is_blinking:
         is_blinking = True
         blink_event = True
         blink_timestamps.append(curr_time)

@@ -34,8 +34,8 @@ The Live tab can be opened without a camera or checkpoint. Choose a camera index
 ## Live session workflow
 
 1. Select a camera index and configure mirroring and the landmark overlay.
-2. Start tracking. The main view shows blink rate, EAR, head pose, FPS, and blink count; additional metrics are available under **Advanced**.
-3. Optionally calibrate for ten seconds while maintaining a neutral expression.
+2. Start tracking. The main view shows blink rate, EAR, head pose, FPS, and blink count; facial signals are plotted against seconds since tracking started. Live processing and optional video recording target 18 FPS; actual rates depend on camera and hardware.
+3. Optionally calibrate for ten seconds while maintaining a neutral expression. The measured open-eye EAR baseline sets the blink threshold to 65% of baseline.
 4. Enable **Record feature session** to write timestamped feature data to `data/recordings/` as CSV and NPZ files. Select **Also save raw video** only when video capture is needed.
 5. Add event markers during recording to support later alignment with an EEG device.
 

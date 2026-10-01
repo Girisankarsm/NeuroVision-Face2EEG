@@ -9,9 +9,19 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from neurovision.preprocessing.facial import FacialFeatureState, extract_compact_features
+from neurovision.preprocessing.facial import (
+    FacialFeatureState,
+    calibrated_blink_threshold,
+    extract_compact_features,
+)
+from neurovision.realtime.camera import open_capture, release_capture
 from neurovision.realtime.face_tracker import MediaPipeFaceTracker
-from neurovision.realtime.recording import blink_warmup_label, save_recording
+from neurovision.realtime.recording import (
+    LIVE_TARGET_FPS,
+    blink_warmup_label,
+    relative_chart_time,
+    save_recording,
+)
 
 
 def _badge(icon: str, label: str, state: str) -> str:
@@ -30,13 +40,14 @@ def render_live_tab():
             ss[key] = value
 
     with st.sidebar:
-        st.subheader("Live Settings")
+        st.subheader("Live Controls")
         camera_idx = int(st.number_input("Camera index", min_value=0, max_value=10, value=0))
         mirror = st.checkbox("Mirror video", value=True)
         show_landmarks = st.checkbox("Landmark overlay", value=True)
         ss.overlay_opacity = st.slider("Overlay opacity", 0.1, 1.0, float(ss.overlay_opacity))
         show_advanced = st.toggle("Advanced", value=False) if hasattr(st, "toggle") else st.checkbox("Advanced", value=False)
         st.divider()
+        st.caption("Face tracking only · no EEG is measured")
         if st.button("Calibrate neutral face (10 seconds)"):
             ss.calib_start, ss.calib_ears = time.time(), []
             ss.baseline_ear = None
@@ -80,6 +91,7 @@ def render_live_tab():
         pose_metric, fps_metric = a.empty(), b.empty()
         total_metric = st.empty()
         st.subheader("Facial signals · last 15 seconds")
+        st.caption("Horizontal axis: seconds since tracking started")
         chart_slot = st.empty()
         if show_advanced:
             st.subheader("Action unit intensities")
@@ -101,7 +113,7 @@ def render_live_tab():
     cap = None
     tracker = None
     try:
-        cap = cv2.VideoCapture(camera_idx)
+        cap = open_capture(camera_idx)
         if not cap.isOpened():
             status.error(f"Camera not found. Check permissions or choose another camera index ({camera_idx}).")
             return
@@ -122,7 +134,7 @@ def render_live_tab():
         video_writer = None
         if record_video and ss.record_started:
             width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            video_writer = cv2.VideoWriter(str(ss.record_base.with_suffix(".mp4")), cv2.VideoWriter_fourcc(*"mp4v"), 15.0, (width, height))
+            video_writer = cv2.VideoWriter(str(ss.record_base.with_suffix(".mp4")), cv2.VideoWriter_fourcc(*"mp4v"), float(LIVE_TARGET_FPS), (width, height))
 
         while ss.get("live_camera_running", False):
             loop_start = time.time()
@@ -154,7 +166,7 @@ def render_live_tab():
                                                   text=f"Neutral face calibration · {max(0, 10-(now-ss.calib_start)):.1f}s remaining")
                     elif ss.calib_ears:
                         ss.baseline_ear = float(np.mean(ss.calib_ears))
-                        ss.blink_threshold = float(ss.baseline_ear * 0.65)
+                        ss.blink_threshold = calibrated_blink_threshold(ss.baseline_ear)
                         state.blink_threshold = ss.blink_threshold
                         ss.calib_start = None
                         calibration_slot.empty()
@@ -170,12 +182,13 @@ def render_live_tab():
                 if show_advanced:
                     mar_metric.metric("MAR", f"{state.mar:.3f}", help="Mouth aspect ratio from lip landmarks.")
                 au = state.au_intensities
-                rows.append({"time": now, "EAR": state.avg_ear, "Blink": state.avg_ear if state.blink_event else np.nan,
+                elapsed = relative_chart_time(now, started)
+                rows.append({"time": elapsed, "EAR": state.avg_ear, "Blink": state.avg_ear if state.blink_event else np.nan,
                              "Head motion": state.movement_energy})
-                rows = [row for row in rows if now - row["time"] <= 15]
+                rows = [row for row in rows if elapsed - row["time"] <= 15]
                 if frames % 3 == 0:
                     plot = pd.DataFrame(rows).set_index("time")
-                    chart_slot.line_chart(plot[["EAR", "Blink", "Head motion"]], height=210)
+                    chart_slot.line_chart(plot[["EAR", "Blink", "Head motion"]], height=230)
                 if show_advanced:
                     items = [("brow_raise_AU", au.get("brow_raiser", 0)), ("jaw_open_AU", au.get("jaw_open", 0)), ("smile_AU12", au.get("smile_AU12", 0))]
                     bars_slot.markdown("".join(
@@ -202,8 +215,8 @@ def render_live_tab():
                 values = (np.nan, np.nan, np.nan, np.nan, np.nan, 0, np.nan, np.nan, np.nan, 0)
 
             current_fps = 1 / max(now - previous_frame, 1e-6)
-            if now - previous_frame > (1 / 15) * 1.8:
-                dropped += max(1, int((now - previous_frame) * 15) - 1)
+            if now - previous_frame > (1 / LIVE_TARGET_FPS) * 1.8:
+                dropped += max(1, int((now - previous_frame) * LIVE_TARGET_FPS) - 1)
             previous_frame = now
             ss.last_fps = current_fps
             fps_metric.metric("FPS", f"{current_fps:.1f}", help="Frames processed per second.")
@@ -223,16 +236,20 @@ def render_live_tab():
             if show_advanced:
                 session_slot.metric("Session", f"{now-started:.1f}s · {frames} frames · {dropped} dropped")
                 latency_slot.metric("Processing latency", f"{(time.time()-loop_start)*1000:.1f} ms")
-            delay = max(0.0, (1/15) - (time.time()-loop_start))
+            delay = max(0.0, (1 / LIVE_TARGET_FPS) - (time.time() - loop_start))
             if delay:
                 time.sleep(delay)
     except (cv2.error, OSError) as exc:
         status.error(f"Live tracking stopped: {exc}")
     finally:
-        if cap is not None:
-            cap.release()
-        if tracker is not None:
-            tracker.close()
-        if 'video_writer' in locals() and video_writer is not None:
-            video_writer.release()
-        ss.blink_total = max(ss.blink_total, blink_total_before if 'blink_total_before' in locals() else ss.blink_total)
+        try:
+            if cap is not None:
+                release_capture(cap)
+        finally:
+            try:
+                if tracker is not None:
+                    tracker.close()
+            finally:
+                if 'video_writer' in locals() and video_writer is not None:
+                    video_writer.release()
+                ss.blink_total = max(ss.blink_total, blink_total_before if 'blink_total_before' in locals() else ss.blink_total)

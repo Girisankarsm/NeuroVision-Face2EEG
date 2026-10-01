@@ -120,9 +120,9 @@ def load_mahnob_session(
     except ImportError:
         return None
 
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        return None
+    from neurovision.realtime.camera import open_capture, release_capture
+
+    cap = open_capture(str(video_path))
 
     frames_features = []
     frame_timestamps = []
@@ -133,6 +133,8 @@ def load_mahnob_session(
     # requires the actual MediaPipe model; for full pipeline, the user would
     # run face tracking first and cache results)
     try:
+        if not cap.isOpened():
+            return None
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -153,7 +155,7 @@ def load_mahnob_session(
             frame_timestamps.append(timestamp)
             frame_idx += 1
     finally:
-        cap.release()
+        release_capture(cap)
 
     if len(frames_features) < sequence_length:
         return None

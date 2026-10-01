@@ -6,17 +6,26 @@ def apply_design_system():
     # CSS Customization for Streamlit
     css = """
     <style>
+    :root {
+        --nv-background: #0B1220;
+        --nv-surface: #121B2E;
+        --nv-border: #1E2A44;
+        --nv-text: #E6EDF7;
+        --nv-muted: #8FA3C2;
+        --nv-accent: #4CC9F0;
+    }
+
     /* Base background and text */
     .stApp {
-        background-color: #0B1220;
-        color: #E6EDF7;
+        background-color: var(--nv-background);
+        color: var(--nv-text);
         font-family: 'Inter', system-ui, sans-serif;
     }
 
     [data-testid="stMetric"], [data-testid="stVerticalBlockBorderWrapper"] {
-        background: #121B2E;
-        border: 1px solid #1E2A44;
-        border-radius: 12px;
+        background: var(--nv-surface);
+        border: 1px solid var(--nv-border);
+        border-radius: 8px;
         padding: 0.65rem;
     }
 
@@ -27,22 +36,22 @@ def apply_design_system():
 
     /* Headers and Titles */
     h1, h2, h3, h4, h5, h6 {
-        color: #E6EDF7 !important;
+        color: var(--nv-text) !important;
         font-family: 'Inter', system-ui, sans-serif;
     }
 
     /* Metrics and Data cards */
     div[data-testid="stMetricValue"] {
-        color: #4CC9F0;
+        color: var(--nv-accent);
     }
     div[data-testid="stMetricLabel"] {
-        color: #8FA3C2;
+        color: var(--nv-muted);
     }
 
     /* Sidebar styling if used */
     section[data-testid="stSidebar"] {
-        background-color: #121B2E;
-        border-right: 1px solid #1E2A44;
+        background-color: var(--nv-surface);
+        border-right: 1px solid var(--nv-border);
     }
 
     /* Tabs */
@@ -60,7 +69,7 @@ def apply_design_system():
         background-color: rgba(239, 71, 111, 0.1);
         color: #EF476F;
         padding: 6px 10px;
-        border-radius: 6px;
+        border-radius: 4px;
         border: 1px solid rgba(239, 71, 111, 0.3);
         font-weight: 500;
         font-size: 0.85rem;
@@ -70,7 +79,7 @@ def apply_design_system():
         background-color: rgba(244, 185, 66, 0.1);
         color: #F4B942;
         padding: 6px 10px;
-        border-radius: 6px;
+        border-radius: 4px;
         border: 1px solid rgba(244, 185, 66, 0.3);
         font-weight: 500;
         font-size: 0.85rem;
@@ -80,7 +89,7 @@ def apply_design_system():
         background-color: rgba(143, 163, 194, 0.1);
         color: #8FA3C2;
         padding: 6px 10px;
-        border-radius: 6px;
+        border-radius: 4px;
         border: 1px solid rgba(143, 163, 194, 0.3);
         font-weight: 500;
         font-size: 0.85rem;
@@ -90,7 +99,7 @@ def apply_design_system():
         background-color: rgba(46, 196, 182, 0.1);
         color: #2EC4B6;
         padding: 6px 10px;
-        border-radius: 6px;
+        border-radius: 4px;
         border: 1px solid rgba(46, 196, 182, 0.3);
         font-weight: 500;
         font-size: 0.85rem;
@@ -99,15 +108,15 @@ def apply_design_system():
 
     /* DataFrame/Table styling */
     .stDataFrame {
-        background-color: #121B2E;
-        border: 1px solid #1E2A44;
-        border-radius: 12px;
+        background-color: var(--nv-surface);
+        border: 1px solid var(--nv-border);
+        border-radius: 8px;
     }
 
     /* Code blocks */
     pre {
-        background-color: #121B2E !important;
-        border: 1px solid #1E2A44;
+        background-color: var(--nv-surface) !important;
+        border: 1px solid var(--nv-border);
     }
     </style>
     """

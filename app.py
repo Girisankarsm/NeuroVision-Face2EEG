@@ -11,7 +11,7 @@ def main():
         page_title="NeuroVision (Face2EEG)",
         page_icon="N",
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
     apply_design_system()
 

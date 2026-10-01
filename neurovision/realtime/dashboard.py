@@ -51,30 +51,39 @@ def run_dashboard(
     validation_eeg: np.ndarray | None = None,
 ) -> None:
     camera = Camera(camera_index)
-    tracker = MediaPipeFaceTracker()
-    predictor = EEGPredictor(checkpoint, fallback_config=config)
-    seq_len = int(config.get("sequence_length", 64))
-    feat_dim = int(config.get("model", {}).get("feature_dim", 4233))
-    buffer = TemporalFeatureBuffer(seq_len, feat_dim)
-    state = FacialFeatureState()
+    tracker = None
+    try:
+        tracker = MediaPipeFaceTracker()
+        predictor = EEGPredictor(checkpoint, fallback_config=config)
+        seq_len = int(config.get("sequence_length", 64))
+        feat_dim = int(config.get("model", {}).get("feature_dim", 4233))
+        buffer = TemporalFeatureBuffer(seq_len, feat_dim)
+        state = FacialFeatureState()
 
-    waveform_history: deque[float] = deque(maxlen=512)
-    band_history: dict[str, deque[float]] = {
-        "delta": deque(maxlen=60),
-        "theta": deque(maxlen=60),
-        "alpha": deque(maxlen=60),
-        "beta": deque(maxlen=60),
-        "gamma": deque(maxlen=60),
-    }
-    band_values = np.zeros(5, dtype=np.float32)
+        waveform_history: deque[float] = deque(maxlen=512)
+        band_history: dict[str, deque[float]] = {
+            "delta": deque(maxlen=60),
+            "theta": deque(maxlen=60),
+            "alpha": deque(maxlen=60),
+            "beta": deque(maxlen=60),
+            "gamma": deque(maxlen=60),
+        }
+        band_values = np.zeros(5, dtype=np.float32)
 
-    stats = DashboardStats(start_time=time.time())
-    fps_counter = 0
-    last_fps_time = time.perf_counter()
-    window_name = f"NEUROVISION — Real-Time Research Instrument [{mode.upper()}]"
+        stats = DashboardStats(start_time=time.time())
+        fps_counter = 0
+        last_fps_time = time.perf_counter()
+        window_name = f"NEUROVISION — Real-Time Research Instrument [{mode.upper()}]"
 
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 1600, 960)
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 1600, 960)
+    except BaseException:
+        try:
+            if tracker is not None:
+                tracker.close()
+        finally:
+            camera.release()
+        raise
 
     try:
         while True:
@@ -174,9 +183,14 @@ def run_dashboard(
             if key in {27, ord("q"), ord("Q")}:
                 break
     finally:
-        tracker.close()
-        camera.release()
-        cv2.destroyAllWindows()
+        try:
+            if tracker is not None:
+                tracker.close()
+        finally:
+            try:
+                camera.release()
+            finally:
+                cv2.destroyAllWindows()
 
 
 def _render_scientific_dashboard(

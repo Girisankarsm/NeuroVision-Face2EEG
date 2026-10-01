@@ -6,8 +6,21 @@ import glob
 import pandas as pd
 from unittest.mock import patch
 
-from neurovision.preprocessing.facial import estimate_head_pose, rotation_matrix_to_head_angles, FacialFeatureState, facial_dynamics
-from neurovision.realtime.recording import blink_warmup_label, RECORDING_COLUMNS, save_recording
+from neurovision.preprocessing.facial import (
+    FacialFeatureState,
+    calibrated_blink_detected,
+    calibrated_blink_threshold,
+    estimate_head_pose,
+    facial_dynamics,
+    rotation_matrix_to_head_angles,
+)
+from neurovision.realtime.recording import (
+    LIVE_TARGET_FPS,
+    RECORDING_COLUMNS,
+    blink_warmup_label,
+    relative_chart_time,
+    save_recording,
+)
 
 def test_head_pose_conversion():
     # Simulate a straight face rotation matrix (near 180 degrees)
@@ -40,6 +53,11 @@ def test_blink_rate_warmup_state():
     assert blink_warmup_label(0) == "Calibrating... 0s / 60s"
     assert blink_warmup_label(59.9) == "Calibrating... 59s / 60s"
     assert blink_warmup_label(60) is None
+
+
+def test_live_chart_uses_session_relative_seconds():
+    assert LIVE_TARGET_FPS == 18
+    assert relative_chart_time(1_700_000_012.5, 1_700_000_000.0) == 12.5
 
 
 def test_recording_files_load_with_schema(tmp_path):
@@ -97,6 +115,26 @@ def test_no_random_values():
             content = f.read()
             match = pattern.search(content)
             assert not match, f"Found random/mock value generation in {fpath} at index {match.start()}! App must not fabricate data."
+
+
+def test_calibrated_blink_detection_at_18_fps():
+    baseline_ear = 0.3
+    threshold = calibrated_blink_threshold(baseline_ear)
+    state = FacialFeatureState(blink_threshold=threshold)
+    landmarks = np.zeros((468, 3))
+
+    assert not calibrated_blink_detected(0.3, threshold)
+    assert calibrated_blink_detected(0.1, threshold)
+    eye_readings = np.repeat([0.3] * 18 + [0.1] * 3 + [0.3] * 3, 2).tolist()
+    with patch("neurovision.preprocessing.facial.compute_ear", side_effect=eye_readings):
+        events = []
+        for frame in range(24):
+            _, state = facial_dynamics(landmarks, state, timestamp=frame / 18)
+            events.append(state.blink_event)
+
+    assert sum(events) == 1
+    assert events[18]
+    assert list(state.blink_timestamps) == [18 / 18]
 
 def test_recording_schema(tmp_path):
     """Test that a recorded session CSV can be loaded and has expected columns."""

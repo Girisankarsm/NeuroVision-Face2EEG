@@ -7,10 +7,16 @@ from pathlib import Path
 
 import numpy as np
 
+LIVE_TARGET_FPS = 18
 RECORDING_COLUMNS = (
     "timestamp", "EAR", "MAR", "pitch", "yaw", "roll", "blink_flag",
     "au_brow_raise_AU", "au_jaw_open_AU", "au_smile_AU12", "face_detected",
 )
+
+
+def relative_chart_time(timestamp: float, session_start: float) -> float:
+    """Convert an epoch timestamp to seconds elapsed within its session."""
+    return float(timestamp - session_start)
 
 
 def blink_warmup_label(elapsed_seconds: float, window_seconds: float = 60.0) -> str | None:
