@@ -12,11 +12,12 @@ Planted relationship
 - EEG waveform is synthesized with the corresponding spectral profile.
 
 This ensures that a well-functioning pipeline should:
-1. Recover a significant Pearson r for alpha on real (unshuffled) data.
-2. Fail the permutation test on shuffled data (p > 0.05).
+1. Recover the planted alpha relationship on the original, unshuffled synthetic data.
+2. Fail to recover that relationship after a synthetic shuffle control.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -136,11 +137,19 @@ def generate_synthetic_dataset(
             eeg_all.append(eeg_window)
             subjects_all.append(subj_id)
 
+    metadata = {
+        "synthetic": True,
+        "label": SYNTHETIC_LABEL,
+        "seed": seed,
+        "n_subjects": n_subjects,
+        "windows_per_subject": windows_per_subject,
+    }
     result = {
         "facial": np.array(facial_all, dtype=np.float32),
         "eeg": np.array(eeg_all, dtype=np.float32),
         "subjects": np.array(subjects_all),
         "log_alpha_true": np.array(log_alpha_true, dtype=np.float32),
+        "metadata": np.asarray(json.dumps(metadata, sort_keys=True)),
     }
 
     if output_path is not None:
@@ -151,6 +160,7 @@ def generate_synthetic_dataset(
             facial=result["facial"],
             eeg=result["eeg"],
             subjects=result["subjects"],
+            metadata=result["metadata"],
         )
 
     return result

@@ -12,6 +12,7 @@ import streamlit as st
 from neurovision.preprocessing.facial import (
     FacialFeatureState,
     calibrated_blink_threshold,
+    compute_windowed_stats,
     extract_compact_features,
 )
 from neurovision.realtime.camera import open_capture, release_capture
@@ -28,13 +29,35 @@ def _badge(icon: str, label: str, state: str) -> str:
     return f'<span class="status-{state}">{icon} {label}</span>'
 
 
+def _estimate_facial_state(feature_window: list[np.ndarray], artifact: dict | None) -> str:
+    if artifact is None or artifact.get("synthetic_training_data", False):
+        return "N/A"
+    if not np.isclose(float(artifact.get("fps", LIVE_TARGET_FPS)), LIVE_TARGET_FPS):
+        return "N/A"
+    window_length = int(artifact.get("window_frames", 64))
+    if len(feature_window) < window_length:
+        return "N/A"
+    try:
+        window_features = compute_windowed_stats(np.asarray(feature_window[-window_length:], dtype=np.float32))
+        normalized = artifact["scaler"].transform(window_features[None, :], np.asarray(["live"]))
+        embedding = artifact["pca"].transform(normalized)
+        probabilities = artifact["gmm"].predict_proba(embedding)[0]
+        cluster = int(np.argmax(probabilities))
+        names = artifact.get("cluster_names", [])
+        name = names[cluster] if cluster < len(names) else f"cluster {cluster}"
+        return f"{name} ({probabilities[cluster]:.0%})"
+    except (ValueError, KeyError, RuntimeError, AttributeError, IndexError):
+        return "N/A"
+
+
 def render_live_tab():
     st.header("Live Webcam Feed")
     st.caption("Facial measurements are derived from webcam landmarks. EEG is never measured by this app.")
     ss = st.session_state
     defaults = {"calib_start": None, "calib_ears": [], "baseline_ear": None,
                 "blink_total": 0, "record_rows": [], "record_started": None,
-                "record_base": None, "markers": [], "overlay_opacity": 0.7}
+                "record_base": None, "markers": [], "overlay_opacity": 0.7,
+                "cluster_feature_window": []}
     for key, value in defaults.items():
         if key not in ss:
             ss[key] = value
@@ -96,6 +119,8 @@ def render_live_tab():
         if show_advanced:
             st.subheader("Action unit intensities")
             mar_metric, bars_slot = st.empty(), st.empty()
+            cluster_state_metric = st.empty()
+            st.caption("Facial-state estimate, not a brain state")
             session_slot, latency_slot = st.empty(), st.empty()
             model_box = st.container(border=True)
             with model_box:
@@ -104,6 +129,8 @@ def render_live_tab():
                 st.caption("Predictions are predicted, not measured.")
 
     if not run_camera:
+        if show_advanced:
+            cluster_state_metric.metric("Facial state", "N/A")
         status.markdown("  ".join([_badge("●", "Camera: not found / stopped", "neutral"),
                                   _badge("●", "Face: not detected", "neutral"),
                                   _badge("●", "Model: EEG MODEL NOT LOADED", "warning"),
@@ -124,6 +151,16 @@ def render_live_tab():
             return
 
         state = FacialFeatureState()
+        cluster_artifact = None
+        if show_advanced:
+            artifact_path = Path("models/gmm.joblib")
+            if artifact_path.exists():
+                try:
+                    import joblib
+
+                    cluster_artifact = joblib.load(artifact_path)
+                except (OSError, EOFError, ValueError, KeyError, ImportError):
+                    cluster_artifact = None
         started, previous, previous_frame = time.time(), time.time(), time.time()
         rows: list[dict] = []
         frames = dropped = 0
@@ -157,6 +194,9 @@ def render_live_tab():
                 height, width = frame.shape[:2]
                 feature, state = extract_compact_features(tracking.landmarks, state, tracking.blendshapes,
                                                            timestamp=now, image_shape=(height, width))
+                ss.cluster_feature_window.append(feature.copy())
+                window_length = int(cluster_artifact.get("window_frames", 64)) if cluster_artifact else 64
+                ss.cluster_feature_window = ss.cluster_feature_window[-window_length:]
                 if state.blink_event:
                     ss.blink_total += 1
                 if ss.calib_start is not None:
@@ -181,6 +221,7 @@ def render_live_tab():
                 pose_metric.metric("Head pose", f"{state.head_pose[0]:.1f}°, {state.head_pose[1]:.1f}°, {state.head_pose[2]:.1f}°", help="Pitch, yaw and roll from face landmarks.")
                 if show_advanced:
                     mar_metric.metric("MAR", f"{state.mar:.3f}", help="Mouth aspect ratio from lip landmarks.")
+                    cluster_state_metric.metric("Facial state", _estimate_facial_state(ss.cluster_feature_window, cluster_artifact))
                 au = state.au_intensities
                 elapsed = relative_chart_time(now, started)
                 rows.append({"time": elapsed, "EAR": state.avg_ear, "Blink": state.avg_ear if state.blink_event else np.nan,
@@ -208,9 +249,12 @@ def render_live_tab():
                 pose = state.head_pose
                 values = (state.avg_ear, state.mar, *pose, int(state.blink_event), au.get("brow_raiser", 0), au.get("jaw_open", 0), au.get("smile_AU12", 0), 1)
             else:
+                ss.cluster_feature_window = []
                 blink_metric.metric("Blink rate", "N/A")
                 ear_metric.metric("EAR", "N/A")
                 pose_metric.metric("Head pose", "N/A")
+                if show_advanced:
+                    cluster_state_metric.metric("Facial state", "N/A")
                 quality_slot.caption("No face detected. Center your face in the camera view.")
                 values = (np.nan, np.nan, np.nan, np.nan, np.nan, 0, np.nan, np.nan, np.nan, 0)
 

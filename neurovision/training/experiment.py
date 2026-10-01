@@ -16,7 +16,11 @@ from neurovision.training.controls import run_blink_ablation, run_permutation_te
 from neurovision.training.cross_validation import run_cross_validation
 
 
-def run_full_experiment(dataset_path: str | Path, output_dir: str | Path = "results") -> None:
+def run_full_experiment(
+    dataset_path: str | Path,
+    output_dir: str | Path = "results",
+    with_clustering: bool = False,
+) -> None:
     """Run the complete pipeline: baselines, deep models, controls, and generate report."""
     dataset_path = Path(dataset_path)
     output_dir = Path(output_dir)
@@ -55,6 +59,12 @@ def run_full_experiment(dataset_path: str | Path, output_dir: str | Path = "resu
 
     print(f"Permutation p-value: {perm_results['p_value']:.4f}")
     print(f"Blink Ablation Drop in R2: {ablation_results['drop']:.4f}")
+
+    if with_clustering:
+        from neurovision.clustering.runner import run_clustering
+
+        print("\n--- Running Unsupervised Facial-State Clustering ---")
+        run_clustering(dataset_path, output_dir / "clustering")
 
     # We will let the app handle the visualizations from these saved CSVs/JSONs.
     print(f"\n=== Experiment Complete! Results saved to {output_dir} ===")

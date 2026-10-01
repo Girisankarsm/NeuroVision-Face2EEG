@@ -14,6 +14,7 @@ from neurovision.preprocessing.facial import (
     facial_dynamics,
     rotation_matrix_to_head_angles,
 )
+from neurovision.app.live_tab import _estimate_facial_state
 from neurovision.realtime.recording import (
     LIVE_TARGET_FPS,
     RECORDING_COLUMNS,
@@ -58,6 +59,35 @@ def test_blink_rate_warmup_state():
 def test_live_chart_uses_session_relative_seconds():
     assert LIVE_TARGET_FPS == 18
     assert relative_chart_time(1_700_000_012.5, 1_700_000_000.0) == 12.5
+
+
+def test_live_cluster_artifact_is_optional_and_uses_probabilities():
+    class Scaler:
+        def transform(self, values, subjects):
+            assert subjects.tolist() == ["live"]
+            return values
+
+    class PCA:
+        def transform(self, values):
+            return values[:, :2]
+
+    class GMM:
+        def predict_proba(self, values):
+            return np.asarray([[0.1, 0.9]])
+
+    assert _estimate_facial_state([], None) == "N/A"
+    assert _estimate_facial_state([np.zeros(28)] * 64, {"synthetic_training_data": True}) == "N/A"
+    artifact = {
+        "window_frames": 64,
+        "scaler": Scaler(),
+        "pca": PCA(),
+        "gmm": GMM(),
+        "cluster_names": ["low motion", "frequent blinking (suggestion; review manually)"],
+    }
+    assert _estimate_facial_state([np.zeros(28)] * 63, artifact) == "N/A"
+    estimate = _estimate_facial_state([np.zeros(28)] * 64, artifact)
+    assert estimate.startswith("frequent blinking")
+    assert "90%" in estimate
 
 
 def test_recording_files_load_with_schema(tmp_path):

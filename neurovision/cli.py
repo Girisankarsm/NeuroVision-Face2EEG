@@ -47,10 +47,22 @@ def main() -> None:
     baseline.add_argument("--dataset", required=True, help="Path to dataset .npz")
     baseline.add_argument("--folds", type=int, default=5, help="Number of cross-validation folds")
 
-    # 6. Experiment command
+    # 6. Unsupervised facial-state clustering
+    cluster = sub.add_parser("cluster", help="Discover facial states and compare them with held-out EEG band power")
+    cluster.add_argument("--dataset", required=True, help="Path to synchronized .npz dataset")
+    cluster.add_argument("--out", default="results/clustering", help="Directory for clustering tables, figures, and JSON")
+    cluster.add_argument("--folds", type=int, default=5, help="Subject-independent GroupKFold folds")
+    cluster.add_argument("--seed", type=int, default=42, help="Random seed for all clustering analyses")
+    cluster.add_argument("--permutations", type=int, default=1000, help="Held-out label permutations (minimum 1000)")
+    cluster.add_argument("--bootstrap", type=int, default=5, help="Whole-training-subject bootstrap resamples (minimum 1)")
+    cluster.add_argument("--fps", type=float, default=18.0, help="Frame rate used to describe window duration")
+    cluster.add_argument("--save-model", action="store_true", help="Save the full-data fitted pipeline to models/gmm.joblib")
+
+    # 7. Experiment command
     experiment = sub.add_parser("experiment", help="Run full pipeline: baselines, deep models, controls, and report")
     experiment.add_argument("--dataset", required=True, help="Path to synchronized dataset .npz")
     experiment.add_argument("--out-dir", default="results", help="Directory to save experiment results")
+    experiment.add_argument("--with-clustering", action="store_true", help="Also run unsupervised facial-state analysis")
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -115,8 +127,20 @@ def main() -> None:
         from neurovision.training.experiment import run_full_experiment
         from neurovision.training.report import write_report_to_readme
 
-        run_full_experiment(dataset_path=Path(args.dataset), output_dir=Path(args.out_dir))
+        run_full_experiment(
+            dataset_path=Path(args.dataset), output_dir=Path(args.out_dir),
+            with_clustering=args.with_clustering,
+        )
         write_report_to_readme(results_dir=Path(args.out_dir))
+    elif args.command == "cluster":
+        from neurovision.clustering.runner import run_clustering
+
+        run_clustering(
+            dataset_path=Path(args.dataset), output_dir=Path(args.out), folds=args.folds,
+            seed=args.seed, n_permutations=args.permutations, n_bootstrap=args.bootstrap,
+            save_model=args.save_model, fps=args.fps,
+            sample_rate=float(config.get("eeg_sample_rate", 256.0)),
+        )
 
 
 if __name__ == "__main__":

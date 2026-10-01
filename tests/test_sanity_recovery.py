@@ -13,9 +13,7 @@ from sklearn.preprocessing import StandardScaler
 
 
 def test_synthetic_sanity_recovery(tmp_path: Path):
-    """Test that the pipeline can recover the planted EAR->alpha correlation in the synthetic dataset,
-    and that the permutation test properly rejects the null hypothesis on the real data but not on shuffled data.
-    """
+    """SYNTHETIC SANITY CHECK: exercise the recovery and permutation utilities on generated inputs."""
     dataset_file = tmp_path / "synthetic.npz"
 
     # Generate synthetic data

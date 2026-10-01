@@ -41,6 +41,30 @@ The Live tab can be opened without a camera or checkpoint. Choose a camera index
 
 Glass reflections and frame quality can affect facial measurements, including EAR. Recorded features are camera-derived and are not EEG.
 
+## Unsupervised analysis
+
+The `cluster` command summarizes compact facial features over 2–4 second windows, then discovers facial-state patterns with a Gaussian Mixture Model (GMM). GMM component count (`k=2..8`) and diagonal/full covariance are selected by BIC. K-Means is the baseline, selecting `k` by training-fold silhouette with `n_init=20`. Suggested names such as “frequent blinking” describe facial patterns only and require manual review.
+
+Every evaluation fold is a subject-independent `GroupKFold`. The per-subject normalizer, 95%-variance PCA, GMM/K-Means fits, and `k` selection use training subjects only. Held-out subjects are transformed with training-global statistics and assigned with `predict` or `predict_proba`. Cluster-versus-EEG analyses use z-scored log10 alpha, theta, and beta power, Kruskal-Wallis tests with Holm correction, within-subject label permutations, and subject-level bootstrap intervals. Window-level Kruskal-Wallis tests do not model repeated windows within subjects, so compare them with the subject-stratified permutation control. Regression compares compact features with GMM membership probabilities using identical folds.
+
+These are exploratory association tests, not evidence that clusters are neural states. Blinks and facial muscle activity (including EMG) can affect EEG band power. The pipeline repeats the analysis after removing blink features and after excluding blink/movement-dominated facial clusters, but a surviving association still does not prove a neural origin. The t-SNE, profile, and timeline figures are descriptive; the archive has no session timestamps, so its timeline uses input window order.
+
+Run the analysis with fixed defaults (seed 42, 5 subject folds, 1,000 permutations, 5 subject bootstraps):
+
+```bash
+python main.py cluster \
+  --dataset neurovision/data/synchronized/dataset.npz \
+  --out results/clustering \
+  --folds 5 --seed 42 --permutations 1000 --bootstrap 5
+```
+
+The frame count divided by `--fps` must describe a 2–4 second window; the default is 18 FPS. Outputs include `cluster_results.json`, `cluster_table.csv`, and figures in `results/clustering/`. To save a final pipeline fitted on all supplied subjects for the optional Live estimate, add `--save-model`; this full-data artifact is for deployment, not held-out evaluation. The experiment command can include clustering with `--with-clustering`.
+
+## Status
+
+- Clustering code has been exercised on `synthetic_data.npz` and on planted three-state recovery tests, all labeled **SYNTHETIC SANITY CHECK**. These runs validate implementation behavior only.
+- No MAHNOB-HCI or user-recorded dataset has been analyzed by the clustering pipeline yet. Do not interpret the checked-in supervised evaluation snapshot as evidence for clustering results.
+
 ![Streamlit Live tab screenshot placeholder](docs/live-tab-screenshot.png)
 
 ## Command-line workflows
@@ -93,7 +117,7 @@ Training and evaluation datasets use NumPy `.npz` archives with these arrays:
 
 | Array | Shape | Description |
 | --- | --- | --- |
-| `facial` | `[N, sequence_length, 4233]` | Windowed facial feature sequences |
+| `facial` | `[N, sequence_length, 28]` | Compact per-frame facial features (legacy full-feature archives may use 4233) |
 | `eeg` | `[N, eeg_window_samples]` | Synchronized EEG windows |
 | `subjects` | `[N]` | Subject identifiers used for grouped splits |
 
