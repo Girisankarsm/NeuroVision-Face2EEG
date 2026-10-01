@@ -27,6 +27,32 @@ def apply_design_system():
         border: 1px solid var(--nv-border);
         border-radius: 8px;
         padding: 0.65rem;
+        height: 5.25rem;
+        min-height: 5.25rem;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    /* Keep the two dashboard columns and their repeated controls aligned. */
+    [data-testid="stHorizontalBlock"] {
+        align-items: stretch;
+        gap: 1.25rem;
+    }
+    [data-testid="column"] {
+        min-width: 0;
+    }
+    [data-testid="stImage"] img,
+    [data-testid="stDataFrame"],
+    [data-testid="stArrowVegaLiteChart"],
+    [data-testid="stLineChart"],
+    [data-testid="stBarChart"] {
+        width: 100% !important;
+    }
+    [data-testid="stProgress"] {
+        margin: 0.15rem 0 0.55rem;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        width: 100%;
     }
 
     /* Fix header padding */
@@ -43,9 +69,34 @@ def apply_design_system():
     /* Metrics and Data cards */
     div[data-testid="stMetricValue"] {
         color: var(--nv-accent);
+        min-height: 1.65rem;
+        line-height: 1.1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     div[data-testid="stMetricLabel"] {
         color: var(--nv-muted);
+        min-height: 1.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    div[data-testid="stMetricValue"] > div {
+        line-height: 1.1;
+        white-space: inherit;
+        overflow: inherit;
+        text-overflow: inherit;
+    }
+
+    @media (max-width: 900px) {
+        .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        [data-testid="stHorizontalBlock"] {
+            gap: 0.75rem;
+        }
     }
 
     /* Sidebar styling if used */

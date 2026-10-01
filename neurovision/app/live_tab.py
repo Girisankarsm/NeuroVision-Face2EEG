@@ -153,31 +153,35 @@ def render_live_tab():
     model_detail = predictor.status_detail if feature_compatible else f"Unsupported checkpoint feature dimension: {feature_dim}"
 
     status = st.empty()
-    left, right = st.columns([6, 4])
+    left, right = st.columns([1.05, 1.35], gap="large")
     with left:
         run_camera = st.checkbox("Start webcam tracking", key="live_camera_running")
         frame_slot = st.empty()
         quality_slot = st.empty()
         calibration_slot = st.empty()
-    with right:
         st.subheader("Key metrics")
-        a, b = st.columns(2)
-        blink_metric, ear_metric = a.empty(), b.empty()
-        pose_metric, fps_metric = a.empty(), b.empty()
+        metric_left, metric_right = st.columns(2, gap="small")
+        blink_metric, ear_metric = metric_left.empty(), metric_right.empty()
+        pose_metric, fps_metric = metric_left.empty(), metric_right.empty()
         total_metric = st.empty()
         predicted_alpha_metric = st.empty()
+    with right:
         st.subheader("Facial signals · last 15 seconds")
         st.caption("Horizontal axis: seconds since tracking started")
         chart_slot = st.empty()
         if show_advanced:
             st.subheader("Model outputs and action units")
-            mar_metric, bars_slot = st.empty(), st.empty()
-            cluster_state_metric = st.empty()
+            output_left, output_right = st.columns(2, gap="small")
+            mar_metric = output_left.empty()
+            cluster_state_metric = output_right.empty()
+            bars_slot = st.empty()
             st.caption("Facial-state estimate, not a brain state")
             prediction_detail_slot = st.empty()
-            predicted_bands_slot = st.empty()
-            predicted_waveform_slot = st.empty()
-            session_slot, latency_slot = st.empty(), st.empty()
+            bands_col, waveform_col = st.columns(2, gap="small")
+            predicted_bands_slot = bands_col.empty()
+            predicted_waveform_slot = waveform_col.empty()
+            session_slot, latency_slot = st.columns(2, gap="small")
+            session_slot, latency_slot = session_slot.empty(), latency_slot.empty()
             model_box = st.container(border=True)
             with model_box:
                 st.markdown(f"**EEG MODEL {model_status}**")
@@ -310,7 +314,7 @@ def render_live_tab():
                 rows = [row for row in rows if elapsed - row["time"] <= 15]
                 if frames % 3 == 0:
                     plot = pd.DataFrame(rows).set_index("time")
-                    chart_slot.line_chart(plot[["EAR", "Blink", "Head motion"]], height=230)
+                    chart_slot.line_chart(plot[["EAR", "Blink", "Head motion"]], height=190)
                 if show_advanced:
                     items = [("brow_raise_AU", au.get("brow_raiser", 0)), ("jaw_open_AU", au.get("jaw_open", 0)), ("smile_AU12", au.get("smile_AU12", 0))]
                     bars_slot.markdown("".join(
@@ -362,13 +366,13 @@ def render_live_tab():
                 percentages = band_percentages(last_prediction.band_power)
                 predicted_bands_slot.bar_chart(
                     pd.DataFrame({"Predicted power share (%)": percentages * 100}, index=band_names),
-                    height=170,
+                    height=145,
                 )
                 sample_rate = float(model_config.get("eeg_sample_rate", 256.0))
                 sample_times = np.arange(len(last_prediction.waveform), dtype=np.float32) / sample_rate
                 predicted_waveform_slot.line_chart(
                     pd.DataFrame({"Model-predicted output": last_prediction.waveform}, index=sample_times),
-                    height=180,
+                    height=145,
                 )
                 confidence = (
                     f" · confidence {last_prediction.confidence:.0%}"
